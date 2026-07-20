@@ -1,0 +1,16 @@
+{
+  "$schema": "./.dt-app/app.config.schema.json",
+  "environmentUrl": "https://mfa20993.apps.dynatrace.com/",
+  "app": {
+    "name": "IPAM",
+    "version": "0.1.12",
+    "description": "A starting project with routing, fetching data, and charting",
+    "id": "my.ipam",
+    "scopes": [
+      { "name": "document:documents:read", "comment": "Read shared IPAM data" },
+      { "name": "document:documents:write", "comment": "Save IPAM data" },
+      { "name": "document:documents:admin", "comment": "Access shared IPAM data across all tenant users" },
+      { "name": "storage:entities:read", "comment": "Query host entities for IP correlation" }
+    ]
+  }
+}
