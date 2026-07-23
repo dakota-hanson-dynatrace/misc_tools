@@ -1,0 +1,165 @@
+name: "Genesys Cloud - Contact Center Overview"
+type: dashboard
+isPrivate: false
+content:
+  annotations: []
+  importedWithCode: false
+  settings:
+    defaultTimeframe:
+      enabled: true
+      value:
+        from: now()-2h
+        to: now()
+  layouts:
+    "0": { x: 0, "y": 0, w: 24, h: 2 }
+    "1": { x: 0, "y": 2, w: 6, h: 3 }
+    "2": { x: 6, "y": 2, w: 6, h: 3 }
+    "3": { x: 12, "y": 2, w: 6, h: 3 }
+    "4": { x: 18, "y": 2, w: 6, h: 3 }
+    "5": { x: 0, "y": 5, w: 24, h: 6 }
+    "6": { x: 0, "y": 11, w: 24, h: 6 }
+    "7": { x: 0, "y": 17, w: 24, h: 6 }
+  tiles:
+    "0":
+      title: ""
+      type: markdown
+      content: "## Genesys Cloud – Contact Center Overview\nAll tiles respect the dashboard timeframe picker above (default: last 2 hours)."
+
+    "1":
+      title: "Conversations Offered"
+      type: data
+      query: |
+        timeseries value = sum(genesys.conversations.offered)
+        | fieldsAdd total = arraySum(value)
+      visualization: singleValue
+      visualizationSettings:
+        autoSelectVisualization: false
+        singleValue:
+          showLabel: true
+          label: "Offered"
+          recordField: total
+      davis:
+        enabled: false
+        davisVisualization:
+          isAvailable: true
+
+    "2":
+      title: "Service Level"
+      type: data
+      query: |
+        timeseries value = avg(genesys.service_level)
+        | fieldsAdd avgServiceLevel = arrayAvg(value)
+      visualization: singleValue
+      visualizationSettings:
+        autoSelectVisualization: false
+        singleValue:
+          showLabel: true
+          label: "Service Level %"
+          recordField: avgServiceLevel
+      davis:
+        enabled: false
+        davisVisualization:
+          isAvailable: true
+
+    "3":
+      title: "Abandonment Rate"
+      type: data
+      query: |
+        timeseries offered = sum(genesys.conversations.offered), abandoned = sum(genesys.conversations.abandoned)
+        | fieldsAdd totalOffered = arraySum(offered), totalAbandoned = arraySum(abandoned)
+        | fieldsAdd abandonmentRate = if(totalOffered > 0, then: totalAbandoned * 100 / totalOffered, else: 0)
+      visualization: singleValue
+      visualizationSettings:
+        autoSelectVisualization: false
+        singleValue:
+          showLabel: true
+          label: "Abandonment Rate %"
+          recordField: abandonmentRate
+      davis:
+        enabled: false
+        davisVisualization:
+          isAvailable: true
+
+    "4":
+      title: "Avg Handle Time"
+      type: data
+      query: |
+        timeseries value = avg(genesys.time.handle.avg)
+        | fieldsAdd avgHandleTime = arrayAvg(value)
+      visualization: singleValue
+      visualizationSettings:
+        autoSelectVisualization: false
+        singleValue:
+          showLabel: true
+          label: "Avg Handle Time"
+          recordField: avgHandleTime
+        unitsOverrides:
+          - identifier: avgHandleTime
+            baseUnit: millisecond
+            displayUnit: null
+            decimals: 1
+      davis:
+        enabled: false
+        davisVisualization:
+          isAvailable: true
+
+    "5":
+      title: "Offered vs. Answered vs. Abandoned"
+      type: data
+      query: |
+        timeseries offered = sum(genesys.conversations.offered), answered = sum(genesys.conversations.answered), abandoned = sum(genesys.conversations.abandoned)
+      visualization: lineChart
+      visualizationSettings:
+        autoSelectVisualization: false
+        chartSettings:
+          legend:
+            position: bottom
+            showLegend: true
+      davis:
+        enabled: false
+        davisVisualization:
+          isAvailable: true
+
+    "6":
+      title: "Channel Comparison (all 5 media types)"
+      type: data
+      query: |
+        timeseries offered = sum(genesys.conversations.offered), answered = sum(genesys.conversations.answered), abandoned = sum(genesys.conversations.abandoned), serviceLevel = avg(genesys.service_level), handleTime = avg(genesys.time.handle.avg), by:{media_type}
+        | fieldsAdd offered = arraySum(offered), answered = arraySum(answered), abandoned = arraySum(abandoned), serviceLevel = arrayAvg(serviceLevel), handleTime = arrayAvg(handleTime)
+        | fields media_type, offered, answered, abandoned, serviceLevel, handleTime
+        | sort offered desc
+      visualization: table
+      visualizationSettings:
+        autoSelectVisualization: false
+        table:
+          linewrapEnabled: true
+      davis:
+        enabled: false
+        davisVisualization:
+          isAvailable: true
+
+    "7":
+      title: "Queue Performance"
+      type: data
+      query: |
+        timeseries offered = sum(genesys.conversations.offered), serviceLevel = avg(genesys.service_level), by:{queue.name}
+        | fieldsAdd offered = arraySum(offered), serviceLevel = arrayAvg(serviceLevel)
+        | fields queue.name, offered, serviceLevel
+        | sort offered desc
+        | limit 15
+      visualization: table
+      visualizationSettings:
+        autoSelectVisualization: false
+        table:
+          linewrapEnabled: true
+      # Higher service level is better. TODO: confirm oServiceLevel scale (0-1 vs 0-100)
+      # from a live Genesys response and adjust these thresholds (currently assumes 0-100).
+      coloring:
+        colorRules:
+          - { colorMode: custom-color, comparator: ">", customColor: { Default: "#c62239" }, field: serviceLevel, value: -1 }
+          - { colorMode: custom-color, comparator: ">", customColor: { Default: "#eea53c" }, field: serviceLevel, value: 70 }
+          - { colorMode: custom-color, comparator: ">", customColor: { Default: "#2f6862" }, field: serviceLevel, value: 85 }
+      davis:
+        enabled: false
+        davisVisualization:
+          isAvailable: true

@@ -1,0 +1,281 @@
+title: "Genesys Cloud - Metrics Ingestion"
+description: >-
+  Pulls Genesys Cloud conversation aggregate metrics (voice, chat, email,
+  message, callback) every 5 minutes and ingests them into Dynatrace as
+  genesys.* metrics. See README.md for one-time setup (Genesys OAuth
+  client + Dynatrace credential vault entries).
+isPrivate: false
+isDeployed: true
+schemaVersion: 4
+type: STANDARD
+hourlyExecutionLimit: 1000
+triggerType: Schedule
+trigger:
+  schedule:
+    trigger:
+      type: cron
+      cron: "*/5 * * * *"
+    timezone: "UTC"
+    isActive: false  # flip to true once genesys_client_id/genesys_client_secret hold real values
+    isFaulty: false
+    nextExecution: null
+    filterParameters: {}
+    inputs: {}
+tasks:
+  get_token:
+    name: get_token
+    description: "Get a Genesys Cloud OAuth token (client credentials grant)"
+    action: dynatrace.automations:run-javascript
+    input:
+      script: |
+        export default async function () {
+          // Assumes vault values contain no unescaped '"' or backtick -- Jinja splices
+          // them into this JS source as-is. Holds for Genesys-issued client id/secret
+          // (URL-safe strings); revisit if this pattern is reused for freeform secrets.
+          const clientId = "{{ secret('genesys_client_id') }}";
+          const clientSecret = "{{ secret('genesys_client_secret') }}";
+          const region = "mypurecloud.com"; // TODO: replace with the customer's Genesys Cloud region
+
+          const basicAuth = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
+          const resp = await fetch(`https://login.${region}/oauth/token`, {
+            method: 'POST',
+            headers: {
+              'Authorization': `Basic ${basicAuth}`,
+              'Content-Type': 'application/x-www-form-urlencoded'
+            },
+            body: 'grant_type=client_credentials'
+          });
+
+          if (!resp.ok) {
+            throw new Error(`Genesys OAuth token request failed: ${resp.status} ${await resp.text()}`);
+          }
+
+          const json = await resp.json();
+          return { accessToken: json.access_token, region };
+        }
+    position:
+      x: 0
+      "y": 1
+    predecessors: []
+
+  get_queues:
+    name: get_queues
+    description: "List Genesys queues once per run, to label metrics with queue names instead of raw IDs"
+    action: dynatrace.automations:run-javascript
+    input:
+      script: |
+        import { execution } from '@dynatrace-sdk/automation-utils';
+
+        export default async function ({ execution_id }) {
+          const ex = await execution(execution_id);
+          const token = await ex.result('get_token');
+
+          const resp = await fetch(`https://api.${token.region}/api/v2/routing/queues?pageSize=500`, {
+            headers: { 'Authorization': `Bearer ${token.accessToken}` }
+          });
+
+          if (!resp.ok) {
+            throw new Error(`Genesys queues request failed: ${resp.status} ${await resp.text()}`);
+          }
+
+          const json = await resp.json();
+          const queueNameById = {};
+          for (const q of (json.entities || [])) {
+            queueNameById[q.id] = q.name;
+          }
+          // ponytail: single page, up to 500 queues. Add pagination if the org has more.
+          return { queueNameById };
+        }
+    position:
+      x: -1
+      "y": 2
+    predecessors:
+      - get_token
+    conditions:
+      states:
+        get_token: OK
+
+  get_metrics:
+    name: get_metrics
+    description: "Query conversation aggregates for the last 15 minutes, grouped by queue + media type (covers all 5 channels in one call)"
+    action: dynatrace.automations:run-javascript
+    input:
+      script: |
+        import { execution } from '@dynatrace-sdk/automation-utils';
+
+        export default async function ({ execution_id }) {
+          const ex = await execution(execution_id);
+          const token = await ex.result('get_token');
+
+          // Floor to a 5-min clock boundary so every run computes the same bucket
+          // start times for the overlapping portion of the window. Combined with
+          // PT5M granularity (3 buckets per call), re-ingesting the same bucket
+          // overwrites the same Dynatrace timestamp instead of creating a new point
+          // each run -- without this, sum() tiles over-count by roughly 3x.
+          const BUCKET_MS = 5 * 60 * 1000;
+          const end = new Date(Math.floor(Date.now() / BUCKET_MS) * BUCKET_MS);
+          const start = new Date(end.getTime() - 15 * 60 * 1000);
+          // 15 min lookback on a 5 min schedule: re-sends the last 3 buckets so a
+          // still-open conversation's numbers get corrected (via overwrite) once it
+          // closes, without a real high-water-mark. Genesys documents no upper bound
+          // on when data "settles" (nightly recalcs can revise it later), so this is
+          // a bounded approximation, not a guarantee -- see README.
+
+          const resp = await fetch(`https://api.${token.region}/api/v2/analytics/conversations/aggregates/query`, {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${token.accessToken}`,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              interval: `${start.toISOString()}/${end.toISOString()}`,
+              granularity: 'PT5M',
+              groupBy: ['queueId', 'mediaType'],
+              metrics: ['nOffered', 'tAnswered', 'tAbandon', 'tWait', 'tHandle', 'tTalk', 'tAcw', 'tAgentResponseTime', 'oServiceLevel']
+            })
+          });
+
+          if (!resp.ok) {
+            throw new Error(`Genesys aggregates query failed: ${resp.status} ${await resp.text()}`);
+          }
+
+          return await resp.json();
+        }
+    position:
+      x: 1
+      "y": 2
+    predecessors:
+      - get_token
+    conditions:
+      states:
+        get_token: OK
+
+  transform:
+    name: transform
+    description: "Convert Genesys aggregate response + queue names into Dynatrace metric-ingest line protocol"
+    action: dynatrace.automations:run-javascript
+    input:
+      script: |
+        import { execution } from '@dynatrace-sdk/automation-utils';
+
+        // Genesys metric -> [Dynatrace metric key, stat kind]
+        // Genesys's timer stats expose count/sum/max/min, no pre-computed avg --
+        // 'avg' here means "derive sum/count", not "read m.stats.avg".
+        const METRIC_MAP = {
+          nOffered: ['genesys.conversations.offered', 'count'],
+          tAnswered: ['genesys.conversations.answered', 'count'],
+          tAbandon: ['genesys.conversations.abandoned', 'count'],
+          tWait: ['genesys.time.wait.avg', 'avg'],
+          tHandle: ['genesys.time.handle.avg', 'avg'],
+          tTalk: ['genesys.time.talk.avg', 'avg'],
+          tAcw: ['genesys.time.acw.avg', 'avg'],
+          tAgentResponseTime: ['genesys.time.agent_response.avg', 'avg'],
+          oServiceLevel: ['genesys.service_level', 'ratio']
+        };
+
+        function sanitize(value) {
+          return String(value).replace(/[,= \n]/g, '_');
+        }
+
+        // ponytail: tries the plausible field names per stat kind rather than
+        // asserting one -- oServiceLevel's exact response shape is unconfirmed
+        // (see README). Logs (not silently drops) anything that doesn't match, so
+        // a real run makes gaps visible instead of a metric staying empty forever.
+        function extractValue(m, stat) {
+          if (stat === 'count') return m.stats ? m.stats.count : undefined;
+          if (stat === 'avg') {
+            if (m.stats && typeof m.stats.sum === 'number' && typeof m.stats.count === 'number' && m.stats.count > 0) {
+              return m.stats.sum / m.stats.count;
+            }
+            return undefined;
+          }
+          if (stat === 'ratio') {
+            return (m.stats && m.stats.ratio !== undefined) ? m.stats.ratio : (m.value !== undefined ? m.value : (m.stats ? m.stats.value : undefined));
+          }
+          return undefined;
+        }
+
+        export default async function ({ execution_id }) {
+          const ex = await execution(execution_id);
+          const queues = await ex.result('get_queues');
+          const metricsResp = await ex.result('get_metrics');
+
+          const lines = [];
+          for (const r of (metricsResp.results || [])) {
+            const queueId = r.group.queueId || 'unknown';
+            const mediaType = r.group.mediaType || 'unknown';
+            const queueName = sanitize(queues.queueNameById[queueId] || queueId);
+
+            for (const bucket of (r.data || [])) {
+              const timestamp = new Date(bucket.interval.split('/')[0]).getTime();
+              for (const m of (bucket.metrics || [])) {
+                const mapping = METRIC_MAP[m.metric];
+                if (!mapping) continue;
+                const [dtKey, stat] = mapping;
+                const value = extractValue(m, stat);
+                if (value === undefined || value === null) {
+                  console.log(`Skipping ${m.metric} for queue ${queueId}/${mediaType}: no ${stat} value in ${JSON.stringify(m)}`);
+                  continue;
+                }
+                lines.push(`${dtKey},queue.id=${queueId},queue.name=${queueName},media_type=${mediaType} ${value} ${timestamp}`);
+              }
+            }
+          }
+
+          return { payload: lines.join('\n'), lineCount: lines.length };
+        }
+    position:
+      x: 0
+      "y": 3
+    predecessors:
+      - get_queues
+      - get_metrics
+    conditions:
+      states:
+        get_queues: OK
+        get_metrics: OK
+
+  ingest_metrics:
+    name: ingest_metrics
+    description: "POST the transformed lines to this tenant's Metrics API v2 ingest endpoint"
+    action: dynatrace.automations:run-javascript
+    input:
+      script: |
+        import { execution } from '@dynatrace-sdk/automation-utils';
+
+        export default async function ({ execution_id }) {
+          const ex = await execution(execution_id);
+          const transformed = await ex.result('transform');
+
+          if (!transformed.lineCount) {
+            console.log('No metric lines to ingest this run.');
+            return { ingested: 0 };
+          }
+
+          const dtToken = "{{ secret('dt_metrics_ingest_token') }}"; // see get_token's note on unescaped secret values
+          const dtEnvUrl = "https://mfa20993.apps.dynatrace.com"; // TODO: replace per target tenant
+
+          const resp = await fetch(`${dtEnvUrl}/api/v2/metrics/ingest`, {
+            method: 'POST',
+            headers: {
+              'Authorization': `Api-Token ${dtToken}`,
+              'Content-Type': 'text/plain; charset=utf-8'
+            },
+            body: transformed.payload
+          });
+
+          const responseText = await resp.text();
+          if (!resp.ok) {
+            throw new Error(`Metrics ingest failed: ${resp.status} ${responseText}`);
+          }
+
+          return { ingested: transformed.lineCount, response: responseText };
+        }
+    position:
+      x: 0
+      "y": 4
+    predecessors:
+      - transform
+    conditions:
+      states:
+        transform: OK
