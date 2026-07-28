@@ -1,0 +1,25 @@
+aws_region = "us-east-1"
+
+aws_accounts = [
+  "123456789012",
+  "234567890123",
+]
+
+dt_account_uuid = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+dt_env_url      = "https://<environment-id>.apps.dynatrace.com"
+
+# dt_oauth_client_id and dt_oauth_client_secret - pass via TF_VAR_ env vars, never commit
+# export TF_VAR_dt_oauth_client_id="dt0s02.XXXXXXXXXX"
+# export TF_VAR_dt_oauth_client_secret="dt0s02.XXXXXXXXXX.XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
+
+token_expiration_date = "2027-08-01T00:00:00.000Z"
+
+monitored_regions = ["us-east-1"]
+
+# Optional overrides
+# dt_extension_version      = "1.0.0"   # query with: curl .../api/v2/extensions/com.dynatrace.extension.da-aws | jq '.version'
+# accounts_per_service_user = 10
+# stack_name_prefix         = "dynatrace-aws"
+# logs_ingest_enabled       = true
+# logs_ingest_regions       = []
+# tags                      = {}
