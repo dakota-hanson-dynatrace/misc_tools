@@ -1,0 +1,162 @@
+id: 44eeff7d-2aff-41fe-8cfe-eb6669c3a8c8
+name: "Extreme Platform ONE - Wireless Experience (Verification)"
+type: dashboard
+isPrivate: false
+content:
+  annotations: []
+  importedWithCode: false
+  settings:
+    defaultTimeframe:
+      enabled: true
+      value:
+        from: now()-2h
+        to: now()
+  layouts:
+    "0": { x: 0, "y": 0, w: 24, h: 2 }
+    "1": { x: 0, "y": 2, w: 6, h: 3 }
+    "2": { x: 6, "y": 2, w: 6, h: 3 }
+    "3": { x: 12, "y": 2, w: 6, h: 3 }
+    "4": { x: 18, "y": 2, w: 6, h: 3 }
+    "5": { x: 0, "y": 5, w: 24, h: 6 }
+    "6": { x: 0, "y": 11, w: 24, h: 6 }
+    "7": { x: 0, "y": 17, w: 24, h: 6 }
+  tiles:
+    "0":
+      title: ""
+      type: markdown
+      content: "## Extreme Platform ONE – Wireless Experience (Verification)\nConfirms the ingestion workflow is landing real data before building out the full production dashboard. All tiles respect the timeframe picker above (default: last 2 hours)."
+
+    "1":
+      title: "Avg Client Health Score"
+      type: data
+      query: |
+        timeseries value = avg(extreme.health.client)
+        | fieldsAdd avgScore = arrayAvg(value)
+      visualization: singleValue
+      visualizationSettings:
+        autoSelectVisualization: false
+        singleValue:
+          showLabel: true
+          label: "Client Health"
+          recordField: avgScore
+      davis:
+        enabled: false
+        davisVisualization:
+          isAvailable: true
+
+    "2":
+      title: "Avg Device Health Score"
+      type: data
+      query: |
+        timeseries value = avg(extreme.health.device)
+        | fieldsAdd avgScore = arrayAvg(value)
+      visualization: singleValue
+      visualizationSettings:
+        autoSelectVisualization: false
+        singleValue:
+          showLabel: true
+          label: "Device Health"
+          recordField: avgScore
+      davis:
+        enabled: false
+        davisVisualization:
+          isAvailable: true
+
+    "3":
+      title: "Active Alerts"
+      type: data
+      query: |
+        fetch events, from:now()-15m
+        | filter event.type == "CUSTOM_ALERT"
+        | summarize cnt = count()
+      visualization: singleValue
+      visualizationSettings:
+        autoSelectVisualization: false
+        singleValue:
+          showLabel: true
+          label: "Active Alerts"
+          recordField: cnt
+      davis:
+        enabled: false
+        davisVisualization:
+          isAvailable: true
+
+    "4":
+      title: "Sites Reporting"
+      type: data
+      query: |
+        timeseries value = avg(extreme.health.client), by:{site.name}
+        | summarize sites = count()
+      visualization: singleValue
+      visualizationSettings:
+        autoSelectVisualization: false
+        singleValue:
+          showLabel: true
+          label: "Sites Reporting"
+          recordField: sites
+      davis:
+        enabled: false
+        davisVisualization:
+          isAvailable: true
+
+    "5":
+      title: "Health Scores Trend"
+      type: data
+      query: |
+        timeseries clientHealth = avg(extreme.health.client), deviceHealth = avg(extreme.health.device), usageCapacity = avg(extreme.health.usage_capacity)
+      visualization: lineChart
+      visualizationSettings:
+        autoSelectVisualization: false
+        chartSettings:
+          legend:
+            position: bottom
+            showLegend: true
+      davis:
+        enabled: false
+        davisVisualization:
+          isAvailable: true
+
+    "6":
+      title: "Per-Site Health (worst first)"
+      type: data
+      query: |
+        timeseries clientHealth = avg(extreme.health.client), deviceHealth = avg(extreme.health.device), wirelessClients = avg(extreme.clients.wireless.count), by:{site.name}
+        | fieldsAdd clientHealth = arrayLast(clientHealth), deviceHealth = arrayLast(deviceHealth), wirelessClients = arrayLast(wirelessClients)
+        | fields site.name, clientHealth, deviceHealth, wirelessClients
+        | sort clientHealth asc
+      visualization: table
+      visualizationSettings:
+        autoSelectVisualization: false
+        table:
+          linewrapEnabled: true
+      # Assumes a 0-100 scale, matching the health-score convention on Extreme's older XIQ
+      # network-scorecard API. TODO: confirm against a live /analytics/dashboard response
+      # (see workflow.yaml get_dashboard's ponytail note) and adjust if it differs.
+      coloring:
+        colorRules:
+          - { colorMode: custom-color, comparator: ">", customColor: { Default: "#c62239" }, field: clientHealth, value: -1 }
+          - { colorMode: custom-color, comparator: ">", customColor: { Default: "#eea53c" }, field: clientHealth, value: 60 }
+          - { colorMode: custom-color, comparator: ">", customColor: { Default: "#2f6862" }, field: clientHealth, value: 80 }
+      davis:
+        enabled: false
+        davisVisualization:
+          isAvailable: true
+
+    "7":
+      title: "Active Alerts Feed"
+      type: data
+      query: |
+        fetch events, from:now()-2h
+        | filter event.type == "CUSTOM_ALERT"
+        | fields timestamp, event.name, extreme.severity, extreme.category, extreme.site, extreme.acknowledged
+        | sort timestamp desc
+        | limit 20
+      visualization: table
+      visualizationSettings:
+        autoSelectVisualization: false
+        table:
+          linewrapEnabled: true
+      davis:
+        enabled: false
+        davisVisualization:
+          isAvailable: true

@@ -1,0 +1,319 @@
+id: ad9dda19-6cfd-44ff-8c12-d9275f0b04d7
+title: "Extreme Platform ONE - Wireless Experience Ingestion"
+description: >-
+  Polls Extreme Platform ONE (cloudapi.extremecloudiq.com) every 5 minutes for
+  per-site wireless health scores and active alerts, and ingests them into
+  Dynatrace as extreme.* metrics plus CUSTOM_ALERT events. See README.md for
+  one-time setup (Platform ONE API key + Dynatrace credential vault entries).
+isPrivate: false
+isDeployed: true
+schemaVersion: 4
+type: STANDARD
+hourlyExecutionLimit: 1000
+triggerType: Schedule
+trigger:
+  schedule:
+    trigger:
+      type: cron
+      cron: "*/5 * * * *"
+    timezone: "UTC"
+    isActive: false  # flip to true once extreme_platform_one_api_key/dt_ingest_token hold real values
+    isFaulty: false
+    nextExecution: null
+    filterParameters: {}
+    inputs: {}
+tasks:
+  get_dashboard:
+    name: get_dashboard
+    description: "Fetch the per-site health rollup (device/client/usage/alert) from the Performance Monitoring dashboard endpoint, paginated across all sites"
+    action: dynatrace.automations:run-javascript
+    input:
+      script: |
+        export default async function () {
+          const apiKey = "{{ secret('extreme_platform_one_api_key') }}";
+          const baseUrl = 'https://cloudapi.extremecloudiq.com';
+
+          async function fetchWithRetry(url, options) {
+            let resp = await fetch(url, options);
+            if (resp.status === 429) {
+              const retryAfter = Number(resp.headers.get('Retry-After')) || 60;
+              console.log(`Rate limited on ${url}, waiting ${retryAfter}s before one retry`);
+              await new Promise((r) => setTimeout(r, retryAfter * 1000));
+              resp = await fetch(url, options);
+            }
+            return resp;
+          }
+
+          const rows = [];
+          let page = 1;
+          const pageSize = 1000; // /analytics/dashboard allows up to 1000/page -- one page covers most estates
+          while (true) {
+            const resp = await fetchWithRetry(`${baseUrl}/pm/v1/analytics/dashboard`, {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${apiKey}`,
+                'Content-Type': 'application/json'
+              },
+              body: JSON.stringify({ responseType: 'grid', pageSize, pageNumber: page })
+            });
+
+            if (!resp.ok) {
+              throw new Error(`Extreme dashboard request failed: ${resp.status} ${await resp.text()}`);
+            }
+
+            const json = await resp.json();
+            // ponytail: DashboardResponse's field names aren't published in Extreme's OpenAPI
+            // spec (empty response schema) -- try the shapes this API's other paginated
+            // endpoints use, log what we actually got, and adjust once a live run confirms it
+            // (see README "known gaps"). This is the same defensive-extraction pattern the
+            // Genesys workflow used for oServiceLevel's unconfirmed shape.
+            const gridRows = json.grid?.rows || json.data?.rows || json.data || [];
+            if (page === 1) {
+              console.log(`Sample dashboard response keys: ${Object.keys(json).join(', ')}`);
+            }
+            rows.push(...gridRows);
+
+            const totalPages = json.grid?.totalPages || json.totalPages || json.total_pages || 1;
+            if (page >= totalPages || gridRows.length === 0) break;
+            page += 1;
+          }
+
+          return { rows };
+        }
+    position:
+      x: -1
+      "y": 1
+    predecessors: []
+
+  get_alerts:
+    name: get_alerts
+    description: "Fetch active alerts for the last 15 minutes (clock-aligned, overlapping window)"
+    action: dynatrace.automations:run-javascript
+    input:
+      script: |
+        export default async function () {
+          const apiKey = "{{ secret('extreme_platform_one_api_key') }}";
+          const baseUrl = 'https://cloudapi.extremecloudiq.com';
+
+          async function fetchWithRetry(url, options) {
+            let resp = await fetch(url, options);
+            if (resp.status === 429) {
+              const retryAfter = Number(resp.headers.get('Retry-After')) || 60;
+              console.log(`Rate limited on ${url}, waiting ${retryAfter}s before one retry`);
+              await new Promise((r) => setTimeout(r, retryAfter * 1000));
+              resp = await fetch(url, options);
+            }
+            return resp;
+          }
+
+          // Floor to a 5-min clock boundary, same trick as Genesys's get_metrics: every run
+          // computes the same bucket edges for the overlapping portion of the window, and a
+          // 15-min lookback (3x the 5-min schedule) means an alert Extreme is slow to surface
+          // still gets picked up by a later run. Unlike Genesys's metric buckets, alerts are
+          // re-sent as duplicate events (deduped downstream by `extreme.alert.id`), not
+          // overwritten by timestamp -- see transform.
+          const BUCKET_MS = 5 * 60 * 1000;
+          const end = new Date(Math.floor(Date.now() / BUCKET_MS) * BUCKET_MS);
+          const start = new Date(end.getTime() - 15 * 60 * 1000);
+
+          const alerts = [];
+          let page = 1;
+          const limit = 100; // max page size for this endpoint
+          while (true) {
+            const url = `${baseUrl}/alert/v1/alerts?startTime=${encodeURIComponent(start.toISOString())}&endTime=${encodeURIComponent(end.toISOString())}&status=active&page=${page}&limit=${limit}`;
+            const resp = await fetchWithRetry(url, {
+              headers: { 'Authorization': `Bearer ${apiKey}` }
+            });
+
+            if (!resp.ok) {
+              throw new Error(`Extreme alerts request failed: ${resp.status} ${await resp.text()}`);
+            }
+
+            const json = await resp.json();
+            alerts.push(...(json.data || []));
+
+            if (page >= (json.total_pages || 1)) break;
+            page += 1;
+          }
+
+          return { alerts };
+        }
+    position:
+      x: 1
+      "y": 1
+    predecessors: []
+
+  transform:
+    name: transform
+    description: "Convert the dashboard grid into Dynatrace metric-ingest line protocol, and active alerts into CUSTOM_ALERT event payloads"
+    action: dynatrace.automations:run-javascript
+    input:
+      script: |
+        import { execution } from '@dynatrace-sdk/automation-utils';
+
+        function sanitize(value) {
+          return String(value).replace(/[,= \n]/g, '_');
+        }
+
+        export default async function ({ execution_id }) {
+          const ex = await execution(execution_id);
+          const dashboard = await ex.result('get_dashboard');
+          const alertsResult = await ex.result('get_alerts');
+
+          const timestamp = Date.now();
+          const lines = [];
+
+          // ponytail: field names below (siteName/siteId/*Score) are best-effort against
+          // the published request schema and this API's naming conventions elsewhere
+          // (camelCase); DashboardResponse's actual shape needs live confirmation (see
+          // get_dashboard). Unrecognized/missing fields are skipped, not guessed at.
+          for (const row of (dashboard.rows || [])) {
+            const siteName = sanitize(row.siteName || row.site_name || row.location || 'unknown');
+            const siteId = row.siteId || row.site_id || 'unknown';
+            const dims = `site.id=${siteId},site.name=${siteName}`;
+
+            const scoreFields = [
+              ['deviceHealthScore', 'extreme.health.device'],
+              ['clientHealthScore', 'extreme.health.client'],
+              ['usageCapacityScore', 'extreme.health.usage_capacity'],
+              ['wirelessClientCount', 'extreme.clients.wireless.count'],
+            ];
+            for (const [field, metricKey] of scoreFields) {
+              const value = row[field];
+              if (typeof value !== 'number') continue;
+              lines.push(`${metricKey},${dims} ${value} ${timestamp}`);
+            }
+          }
+
+          // One CUSTOM_ALERT event per active Extreme alert. `timeout` is 3x the 5-min poll
+          // interval: if Extreme still reports the alert active next run, we resend it and
+          // Dynatrace's own timeout-refresh keeps it open; if it drops off (resolved or
+          // missed one poll), it auto-closes on its own without us tracking a resolve
+          // transition explicitly.
+          const events = (alertsResult.alerts || []).map((a) => ({
+            eventType: 'CUSTOM_ALERT',
+            title: a.summary || 'Extreme Networks alert',
+            timeout: 15,
+            properties: {
+              'extreme.alert.id': a.id,
+              'extreme.severity': a.severity_name,
+              'extreme.category': a.category_name,
+              'extreme.site': a.site_name,
+              'extreme.app': a.app_name || a.app,
+              'extreme.acknowledged': String(a.acknowledged),
+            },
+          }));
+
+          return {
+            metricPayload: lines.join('\n'),
+            metricLineCount: lines.length,
+            events,
+          };
+        }
+    position:
+      x: 0
+      "y": 2
+    predecessors:
+      - get_dashboard
+      - get_alerts
+    conditions:
+      states:
+        get_dashboard: OK
+        get_alerts: OK
+
+  ingest_metrics:
+    name: ingest_metrics
+    description: "POST the transformed health-score lines to this tenant's Metrics API v2 ingest endpoint"
+    action: dynatrace.automations:run-javascript
+    input:
+      script: |
+        import { execution } from '@dynatrace-sdk/automation-utils';
+
+        export default async function ({ execution_id }) {
+          const ex = await execution(execution_id);
+          const transformed = await ex.result('transform');
+
+          if (!transformed.metricLineCount) {
+            console.log('No metric lines to ingest this run.');
+            return { ingested: 0 };
+          }
+
+          const dtToken = "{{ secret('dt_ingest_token') }}";
+          const dtEnvUrl = "https://mfa20993.apps.dynatrace.com"; // TODO: replace per target tenant
+
+          const resp = await fetch(`${dtEnvUrl}/api/v2/metrics/ingest`, {
+            method: 'POST',
+            headers: {
+              'Authorization': `Api-Token ${dtToken}`,
+              'Content-Type': 'text/plain; charset=utf-8'
+            },
+            body: transformed.metricPayload
+          });
+
+          const responseText = await resp.text();
+          if (!resp.ok) {
+            throw new Error(`Metrics ingest failed: ${resp.status} ${responseText}`);
+          }
+
+          return { ingested: transformed.metricLineCount, response: responseText };
+        }
+    position:
+      x: -1
+      "y": 3
+    predecessors:
+      - transform
+    conditions:
+      states:
+        transform: OK
+
+  ingest_events:
+    name: ingest_events
+    description: "POST one CUSTOM_ALERT event per active Extreme alert to this tenant's Events API v2 ingest endpoint"
+    action: dynatrace.automations:run-javascript
+    input:
+      script: |
+        import { execution } from '@dynatrace-sdk/automation-utils';
+
+        export default async function ({ execution_id }) {
+          const ex = await execution(execution_id);
+          const transformed = await ex.result('transform');
+
+          if (!transformed.events || !transformed.events.length) {
+            console.log('No alerts to ingest this run.');
+            return { ingested: 0 };
+          }
+
+          const dtToken = "{{ secret('dt_ingest_token') }}";
+          const dtEnvUrl = "https://mfa20993.apps.dynatrace.com"; // TODO: replace per target tenant
+
+          // ponytail: one POST per alert -- Events Ingest v2 takes a single event per call,
+          // unlike the batched line-protocol/multi-event bodies metrics/bizevents ingest
+          // accept. Fine at typical alert volumes; if a site regularly surfaces hundreds of
+          // active alerts per 5-min window, this becomes the bottleneck to revisit first.
+          let ingested = 0;
+          for (const event of transformed.events) {
+            const resp = await fetch(`${dtEnvUrl}/api/v2/events/ingest`, {
+              method: 'POST',
+              headers: {
+                'Authorization': `Api-Token ${dtToken}`,
+                'Content-Type': 'application/json'
+              },
+              body: JSON.stringify(event)
+            });
+
+            if (!resp.ok) {
+              throw new Error(`Event ingest failed for alert ${event.properties['extreme.alert.id']}: ${resp.status} ${await resp.text()}`);
+            }
+            ingested += 1;
+          }
+
+          return { ingested };
+        }
+    position:
+      x: 1
+      "y": 3
+    predecessors:
+      - transform
+    conditions:
+      states:
+        transform: OK
