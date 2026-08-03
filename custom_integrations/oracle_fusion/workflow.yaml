@@ -1,0 +1,367 @@
+title: "Oracle Fusion Cloud Applications - ESS Job Monitoring"
+description: >-
+  Polls Oracle Fusion's Enterprise Scheduler Service (ESS) REST API every 5
+  minutes for job-request status across ERP/HCM/SCM, and ingests them into
+  Dynatrace as oracle_fusion.ess.* metrics plus CUSTOM_ALERT events. See
+  README.md for one-time setup (OCI IAM confidential app + Fusion Security
+  Console user/role + Dynatrace credential vault entries).
+isPrivate: false
+isDeployed: true
+schemaVersion: 4
+type: STANDARD
+hourlyExecutionLimit: 1000
+triggerType: Schedule
+trigger:
+  schedule:
+    trigger:
+      type: cron
+      cron: "*/5 * * * *"
+    timezone: "UTC"
+    isActive: false  # flip to true once oracle_fusion_client_id/oracle_fusion_client_secret/dt_ingest_token hold real values
+    isFaulty: false
+    nextExecution: null
+    filterParameters: {}
+    inputs: {}
+tasks:
+  get_token:
+    name: get_token
+    description: "Get an Oracle Fusion OAuth token (client credentials grant against the OCI IAM identity domain)"
+    action: dynatrace.automations:run-javascript
+    input:
+      script: |
+        export default async function () {
+          // Assumes vault values contain no unescaped '"' or backtick -- Jinja splices
+          // them into this JS source as-is. Same caveat the Genesys workflow's get_token
+          // notes for its own OAuth client id/secret.
+          const clientId = "{{ secret('oracle_fusion_client_id') }}";
+          const clientSecret = "{{ secret('oracle_fusion_client_secret') }}";
+          const iamDomainUrl = "https://idcs-REPLACE.identity.oraclecloud.com"; // TODO: customer's OCI IAM identity domain URL
+          // TODO: confirm exact scope with the customer's IAM admin -- ESS spans every
+          // product (HCM/ERP/SCM), but the documented scope pattern is per-product
+          // (urn:opc:resource:fusion:<POD_NAME>:<product>/). Unconfirmed whether a
+          // broader/global scope exists for a cross-product API like ESS -- see
+          // README's Known Limitations.
+          const scope = "urn:opc:resource:fusion:REPLACE_POD:ess/";
+
+          const basicAuth = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
+          const resp = await fetch(`${iamDomainUrl}/oauth2/v1/token`, {
+            method: 'POST',
+            headers: {
+              'Authorization': `Basic ${basicAuth}`,
+              'Content-Type': 'application/x-www-form-urlencoded'
+            },
+            body: `grant_type=client_credentials&scope=${encodeURIComponent(scope)}`
+          });
+
+          if (!resp.ok) {
+            throw new Error(`Oracle Fusion OAuth token request failed: ${resp.status} ${await resp.text()}`);
+          }
+
+          const json = await resp.json();
+          return { accessToken: json.access_token };
+        }
+    position:
+      x: 0
+      "y": 1
+    predecessors: []
+
+  get_ess_requests:
+    name: get_ess_requests
+    description: "Fetch ESS job-request status for the last 24h, paginated, across all products"
+    action: dynatrace.automations:run-javascript
+    input:
+      script: |
+        import { execution } from '@dynatrace-sdk/automation-utils';
+
+        export default async function ({ execution_id }) {
+          const ex = await execution(execution_id);
+          const token = await ex.result('get_token');
+          const fusionBaseUrl = "https://REPLACE-servername.fa.REPLACE-dc.oraclecloud.com"; // TODO: customer's Fusion instance base URL
+
+          // No confirmed Retry-After behavior for Fusion (unlike e.g. Extreme Networks,
+          // which fully documents IETF rate-limit headers) -- fixed/exponential backoff
+          // with a hard attempt cap instead of trusting a header. 4 total attempts, 3
+          // inter-attempt delays (N attempts only ever need N-1 waits). Retries 429 and
+          // 5xx defensively; only 429 is actually confirmed to occur for this API.
+          async function fetchWithBackoff(url, options) {
+            const delaysMs = [2000, 4000, 8000];
+            let resp;
+            for (let attempt = 0; attempt <= delaysMs.length; attempt++) {
+              resp = await fetch(url, options);
+              if (resp.status !== 429 && resp.status < 500) return resp;
+              if (attempt === delaysMs.length) return resp; // final attempt -- caller checks resp.ok
+              const backoffMs = delaysMs[attempt] + Math.floor(Math.random() * 500);
+              console.log(`ESS request got ${resp.status} on attempt ${attempt + 1}/${delaysMs.length + 1}, backing off ${backoffMs}ms`);
+              await new Promise((r) => setTimeout(r, backoffMs));
+            }
+            return resp;
+          }
+
+          // 24h, not a 15-min window like this repo's other integrations -- ESS jobs
+          // range from seconds to many hours (month-end close, payroll), and a short
+          // window would lose visibility on exactly the long-running jobs this
+          // integration most needs to track to completion. See README for how this
+          // interacts with the 15-min event timeout in `transform`.
+          const LOOKBACK_HOURS = 24;
+          const since = new Date(Date.now() - LOOKBACK_HOURS * 60 * 60 * 1000).toISOString();
+          // ponytail: exact q-filter operator/quoting isn't confirmed from docs alone --
+          // SCIM 'ge' comparator is the standard convention; log + adjust if items come
+          // back empty or the filter silently doesn't filter (see README Known Limitations).
+          const q = `submissionTime ge '${since}'`;
+
+          const FIELDS = [
+            'requestId', 'jobDefinitionId', 'application', 'product', 'jobDisplayName', 'requestCategory',
+            'state', 'stateDescription', 'previousState', 'stateChangeTime', 'processPhase',
+            'cause', 'causeDescription', 'errorType', 'errorWarningMessage', 'errorWarningTime',
+            'submissionTime', 'requestedStartTime', 'scheduledTime', 'processStartTime', 'processEndTime',
+            'completedTime', 'elapsedTime', 'submitter', 'retriedCount', 'priority'
+          ].join(',');
+
+          const items = [];
+          const limit = 500; // practical ceiling per research; drop to 499 if the tenant rejects 500
+          let offset = 0;
+          // Safety valve against a buggy/always-true hasMore -- 25k rows is far beyond any
+          // real 24h window. orderBy is submissionTime:desc, so if this cap is ever hit,
+          // the rows dropped are the OLDEST in the window -- exactly the long-running jobs
+          // this integration most needs. Logged loudly below if it happens.
+          const MAX_PAGES = 50;
+          for (let page = 0; page < MAX_PAGES; page++) {
+            const url = `${fusionBaseUrl}/ess/rest/scheduler/v1/requests?q=${encodeURIComponent(q)}` +
+              `&limit=${limit}&offset=${offset}&orderBy=submissionTime:desc&onlyData=true&fields=${FIELDS}`;
+            const resp = await fetchWithBackoff(url, { headers: { 'Authorization': `Bearer ${token.accessToken}` } });
+            if (!resp.ok) {
+              throw new Error(`ESS requests fetch failed: ${resp.status} ${await resp.text()}`);
+            }
+
+            const json = await resp.json();
+            // ponytail: pagination wrapper shape (items/hasMore) assumed from Oracle's
+            // standard ADF REST convention, not yet confirmed live for this specific
+            // endpoint -- log page 1 to verify, same defensive pattern this repo's other
+            // integrations use for unconfirmed response shapes.
+            if (page === 0) {
+              console.log(`Sample ESS response keys: ${Object.keys(json).join(', ')}`);
+            }
+            const pageItems = json.items || json.data || [];
+            items.push(...pageItems);
+
+            const hasMore = json.hasMore === true;
+            if (!hasMore || pageItems.length === 0) break;
+            if (page === MAX_PAGES - 1) {
+              console.log(`Hit MAX_PAGES=${MAX_PAGES} safety cap with ${items.length} rows fetched -- more rows may exist beyond the oldest fetched (orderBy=submissionTime:desc, so any dropped rows are the oldest/longest-running in the window).`);
+            }
+            offset += limit;
+          }
+
+          return { items };
+        }
+    position:
+      x: 0
+      "y": 2
+    predecessors:
+      - get_token
+    conditions:
+      states:
+        get_token: OK
+
+  transform:
+    name: transform
+    description: "Convert ESS job requests into Dynatrace metric-ingest line protocol and CUSTOM_ALERT event payloads"
+    action: dynatrace.automations:run-javascript
+    input:
+      script: |
+        import { execution } from '@dynatrace-sdk/automation-utils';
+
+        function sanitize(value) { return String(value).replace(/[,= \n]/g, '_'); }
+
+        const STATE_BUCKET = {
+          COMPLETED: 'completed', SUCCEEDED: 'completed', FINISHED: 'completed',
+          ERROR: 'failed', WARNING: 'failed', VALIDATION_FAILED: 'failed',
+          ERROR_MANUAL_RECOVERY: 'failed', CANCELLED: 'failed', EXPIRED: 'failed',
+        };
+        // Everything else (RUNNING, WAIT, READY, BLOCKED, HOLD, CANCELLING,
+        // PENDING_VALIDATION, ERROR_AUTO_RETRY, PAUSED, SCHEDULE_ENDED, UNKNOWN) falls
+        // through to 'other' via `STATE_BUCKET[state] || 'other'` -- deliberately not
+        // 'in_flight', since PAUSED/SCHEDULE_ENDED/UNKNOWN aren't "running". Raw `state`
+        // stays queryable directly for a finer breakdown.
+
+        // Narrower than the 'failed' bucket on purpose: CANCELLED/EXPIRED show up in the
+        // dashboard's failed bucket for visibility but don't page anyone -- a deliberate
+        // cancel or a missed schedule window isn't necessarily a system failure.
+        // ERROR_AUTO_RETRY alerts nobody either -- Oracle is still self-healing at that
+        // point; only alert if it eventually lands in real ERROR.
+        const ALERT_STATES = new Set(['ERROR', 'ERROR_MANUAL_RECOVERY', 'VALIDATION_FAILED', 'WARNING']);
+
+        function buildDims(r) {
+          const product = sanitize(r.product || 'unknown');
+          const application = sanitize(r.application || 'unknown');
+          const jobName = sanitize(r.jobDisplayName || r.jobDefinitionId || 'unknown');
+          const category = sanitize(r.requestCategory || 'unknown');
+          const state = r.state || 'UNKNOWN';
+          const bucket = STATE_BUCKET[state] || 'other';
+          return {
+            dimsStr: `product=${product},application=${application},job_name=${jobName},request_category=${category},state=${state},status_bucket=${bucket}`,
+            state,
+          };
+        }
+
+        // Unlike a poller that floors timestamps to a clock bucket (needed only when the
+        // upstream API's own aggregation windows shift between polls), ESS gives every
+        // request a real, stable stateChangeTime once set -- resending the same row at
+        // the same timestamp on every poll within the lookback is already a safe no-op
+        // overwrite at the ingest layer. Falls back to submissionTime, then now(), so an
+        // unset/malformed timestamp can't corrupt the ingest line with NaN.
+        function resolveTimestampMs(r) {
+          const raw = r.stateChangeTime || r.submissionTime;
+          const t = raw ? Date.parse(raw) : NaN;
+          return Number.isFinite(t) ? t : Date.now();
+        }
+
+        export default async function ({ execution_id }) {
+          const ex = await execution(execution_id);
+          const { items } = await ex.result('get_ess_requests');
+
+          const lines = [];
+          const events = [];
+
+          for (const r of items) {
+            const { dimsStr, state } = buildDims(r);
+            const ts = resolveTimestampMs(r);
+
+            lines.push(`oracle_fusion.ess.job.count,${dimsStr} 1 ${ts}`);
+            if (typeof r.elapsedTime === 'number') {
+              lines.push(`oracle_fusion.ess.job.duration,${dimsStr} ${r.elapsedTime} ${ts}`);
+            }
+
+            if (ALERT_STATES.has(state)) {
+              // Dedup via resend + Dynatrace's own event-timeout refresh (same pattern
+              // this repo's other CUSTOM_ALERT-emitting integration uses) -- requestId is
+              // a genuinely unique per-execution identifier, so repeated refreshes of the
+              // same event read clearly as "the same still-failing job", not alert noise.
+              // No persisted already-alerted store; add one only if independent
+              // alert-acknowledgment tracking is ever needed.
+              events.push({
+                eventType: 'CUSTOM_ALERT',
+                title: `Oracle Fusion ESS job ${state.toLowerCase()}: ${r.jobDisplayName || r.jobDefinitionId || r.requestId}`,
+                timeout: 15,
+                properties: {
+                  'oracle_fusion.ess.request_id': String(r.requestId),
+                  'oracle_fusion.ess.job_name': r.jobDisplayName || '',
+                  'oracle_fusion.ess.product': r.product || '',
+                  'oracle_fusion.ess.application': r.application || '',
+                  'oracle_fusion.ess.state': state,
+                  'oracle_fusion.ess.cause': r.cause || '',
+                  'oracle_fusion.ess.error_message': r.errorWarningMessage || r.causeDescription || '',
+                  'oracle_fusion.ess.elapsed_time_ms': typeof r.elapsedTime === 'number' ? String(r.elapsedTime) : '',
+                  'oracle_fusion.ess.submitter': r.submitter || '',
+                },
+              });
+            }
+          }
+
+          return { metricPayload: lines.join('\n'), metricLineCount: lines.length, events };
+        }
+    position:
+      x: 0
+      "y": 3
+    predecessors:
+      - get_ess_requests
+    conditions:
+      states:
+        get_ess_requests: OK
+
+  ingest_metrics:
+    name: ingest_metrics
+    description: "POST the transformed job-status lines to this tenant's Metrics API v2 ingest endpoint"
+    action: dynatrace.automations:run-javascript
+    input:
+      script: |
+        import { execution } from '@dynatrace-sdk/automation-utils';
+
+        export default async function ({ execution_id }) {
+          const ex = await execution(execution_id);
+          const transformed = await ex.result('transform');
+
+          if (!transformed.metricLineCount) {
+            console.log('No metric lines to ingest this run.');
+            return { ingested: 0 };
+          }
+
+          const dtToken = "{{ secret('dt_ingest_token') }}";
+          const dtEnvUrl = "https://mfa20993.apps.dynatrace.com"; // TODO: replace per target tenant
+
+          const resp = await fetch(`${dtEnvUrl}/api/v2/metrics/ingest`, {
+            method: 'POST',
+            headers: {
+              'Authorization': `Api-Token ${dtToken}`,
+              'Content-Type': 'text/plain; charset=utf-8'
+            },
+            body: transformed.metricPayload
+          });
+
+          const responseText = await resp.text();
+          if (!resp.ok) {
+            throw new Error(`Metrics ingest failed: ${resp.status} ${responseText}`);
+          }
+
+          return { ingested: transformed.metricLineCount, response: responseText };
+        }
+    position:
+      x: -1
+      "y": 4
+    predecessors:
+      - transform
+    conditions:
+      states:
+        transform: OK
+
+  ingest_events:
+    name: ingest_events
+    description: "POST one CUSTOM_ALERT event per alert-worthy ESS job to this tenant's Events API v2 ingest endpoint"
+    action: dynatrace.automations:run-javascript
+    input:
+      script: |
+        import { execution } from '@dynatrace-sdk/automation-utils';
+
+        export default async function ({ execution_id }) {
+          const ex = await execution(execution_id);
+          const transformed = await ex.result('transform');
+
+          if (!transformed.events || !transformed.events.length) {
+            console.log('No alerts to ingest this run.');
+            return { ingested: 0 };
+          }
+
+          const dtToken = "{{ secret('dt_ingest_token') }}";
+          const dtEnvUrl = "https://mfa20993.apps.dynatrace.com"; // TODO: replace per target tenant
+
+          // One POST per event -- Events Ingest v2 takes a single event per call, unlike
+          // the batched line-protocol metrics ingest accepts. Fine at typical ESS failure
+          // volumes; revisit if a tenant regularly surfaces hundreds of simultaneously
+          // alert-worthy jobs in one 5-minute window.
+          let ingested = 0;
+          for (const event of transformed.events) {
+            const resp = await fetch(`${dtEnvUrl}/api/v2/events/ingest`, {
+              method: 'POST',
+              headers: {
+                'Authorization': `Api-Token ${dtToken}`,
+                'Content-Type': 'application/json'
+              },
+              body: JSON.stringify(event)
+            });
+
+            if (!resp.ok) {
+              throw new Error(`Event ingest failed for request ${event.properties['oracle_fusion.ess.request_id']}: ${resp.status} ${await resp.text()}`);
+            }
+            ingested += 1;
+          }
+
+          return { ingested };
+        }
+    position:
+      x: 1
+      "y": 4
+    predecessors:
+      - transform
+    conditions:
+      states:
+        transform: OK

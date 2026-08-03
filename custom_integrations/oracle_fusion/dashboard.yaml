@@ -1,0 +1,158 @@
+name: "Oracle Fusion Cloud Applications - ESS Job Monitoring (Verification)"
+type: dashboard
+isPrivate: false
+content:
+  annotations: []
+  importedWithCode: false
+  settings:
+    defaultTimeframe:
+      enabled: true
+      value:
+        from: now()-2h
+        to: now()
+  layouts:
+    "0": { x: 0, "y": 0, w: 24, h: 2 }
+    "1": { x: 0, "y": 2, w: 6, h: 3 }
+    "2": { x: 6, "y": 2, w: 6, h: 3 }
+    "3": { x: 12, "y": 2, w: 6, h: 3 }
+    "4": { x: 18, "y": 2, w: 6, h: 3 }
+    "5": { x: 0, "y": 5, w: 24, h: 6 }
+    "6": { x: 0, "y": 11, w: 24, h: 6 }
+    "7": { x: 0, "y": 17, w: 24, h: 6 }
+  tiles:
+    "0":
+      title: ""
+      type: markdown
+      content: "## Oracle Fusion Cloud Applications – ESS Job Monitoring (Verification)\nConfirms the ESS ingestion workflow is landing real data. All tiles respect the timeframe picker above (default: last 2 hours). No row-color thresholds are applied on the tables below — `state`/`status_bucket` are categorical, not a 0-100 health score."
+
+    "1":
+      title: "Failed/Warning Jobs"
+      type: data
+      query: |
+        timeseries value = sum(oracle_fusion.ess.job.count), filter:{status_bucket == "failed"}
+        | fieldsAdd total = arraySum(value)
+      visualization: singleValue
+      visualizationSettings:
+        autoSelectVisualization: false
+        singleValue:
+          showLabel: true
+          label: "Failed/Warning"
+          recordField: total
+      davis:
+        enabled: false
+        davisVisualization:
+          isAvailable: true
+
+    "2":
+      title: "Completed Jobs"
+      type: data
+      query: |
+        timeseries value = sum(oracle_fusion.ess.job.count), filter:{status_bucket == "completed"}
+        | fieldsAdd total = arraySum(value)
+      visualization: singleValue
+      visualizationSettings:
+        autoSelectVisualization: false
+        singleValue:
+          showLabel: true
+          label: "Completed"
+          recordField: total
+      davis:
+        enabled: false
+        davisVisualization:
+          isAvailable: true
+
+    "3":
+      title: "Avg Job Duration"
+      type: data
+      query: |
+        timeseries value = avg(oracle_fusion.ess.job.duration)
+        | fieldsAdd avgDuration = arrayAvg(value)
+      visualization: singleValue
+      visualizationSettings:
+        autoSelectVisualization: false
+        singleValue:
+          showLabel: true
+          label: "Avg Duration"
+          recordField: avgDuration
+          unitsOverrides:
+            - identifier: avgDuration
+              baseUnit: millisecond
+              displayUnit: null
+              decimals: 1
+      davis:
+        enabled: false
+        davisVisualization:
+          isAvailable: true
+
+    "4":
+      title: "Products Reporting"
+      type: data
+      query: |
+        timeseries value = sum(oracle_fusion.ess.job.count), by:{product}
+        | summarize products = count()
+      visualization: singleValue
+      visualizationSettings:
+        autoSelectVisualization: false
+        singleValue:
+          showLabel: true
+          label: "Products Reporting"
+          recordField: products
+      davis:
+        enabled: false
+        davisVisualization:
+          isAvailable: true
+
+    "5":
+      title: "Job Status Trend"
+      type: data
+      query: |
+        timeseries value = sum(oracle_fusion.ess.job.count), by:{status_bucket}
+      visualization: lineChart
+      visualizationSettings:
+        autoSelectVisualization: false
+        chartSettings:
+          legend:
+            position: bottom
+            showLegend: true
+      davis:
+        enabled: false
+        davisVisualization:
+          isAvailable: true
+
+    "6":
+      title: "Recent Failed/Warning Jobs"
+      type: data
+      query: |
+        fetch events, from:now()-2h
+        | filter event.type == "CUSTOM_ALERT"
+        | fields timestamp, oracle_fusion.ess.product, oracle_fusion.ess.job_name, oracle_fusion.ess.error_message, oracle_fusion.ess.elapsed_time_ms, oracle_fusion.ess.state
+        | sort timestamp desc
+        | limit 20
+      visualization: table
+      visualizationSettings:
+        autoSelectVisualization: false
+        table:
+          linewrapEnabled: true
+      davis:
+        enabled: false
+        davisVisualization:
+          isAvailable: true
+
+    "7":
+      title: "Active Alert Events"
+      type: data
+      query: |
+        fetch events, from:now()-2h
+        | filter event.type == "CUSTOM_ALERT"
+        | fields timestamp, event.name, oracle_fusion.ess.request_id, oracle_fusion.ess.state, oracle_fusion.ess.submitter
+        | sort timestamp desc
+        | limit 20
+      visualization: table
+      visualizationSettings:
+        autoSelectVisualization: false
+        table:
+          linewrapEnabled: true
+      davis:
+        enabled: false
+        davisVisualization:
+          isAvailable: true
