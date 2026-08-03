@@ -40,8 +40,11 @@ Then edit one placeholder, in two places, before applying:
 
 ```bash
 dtctl apply -f workflow.yaml --plain
-dtctl apply -f dashboard.yaml --plain
+dtctl apply -f dashboard.yaml --share-environment read --plain
 ```
+
+`--share-environment read` makes the dashboard visible to everyone in the tenant — a
+dashboard YAML's `isPrivate: false` field alone does **not** do this (see AGENTS.md).
 
 ## 4. Test
 

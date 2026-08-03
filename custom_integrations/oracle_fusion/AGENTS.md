@@ -71,8 +71,15 @@ and gotchas referenced below.
 2. **A dashboard's `isPrivate: false` in the YAML does not make it visible to others.**
    Visibility is a separate share action: `dtctl apply -f dashboard.yaml
    --share-environment read` (everyone in the tenant, read-only) or `dtctl share
-   dashboard <id> --user/--group ...` (specific people). Check with `dtctl get dashboard
-   <id> -o json --plain | grep isPrivate` after applying if in doubt.
+   dashboard <id> --user/--group ...` (specific people). **You cannot verify this after
+   the fact from `isPrivate`** — confirmed empirically while auditing this across
+   `custom_integrations/`: `dtctl get dashboard <id> -o json` / `describe` only ever
+   expose `id`, `name`, `type`, `owner`, `isPrivate`, `version`, `modificationInfo`,
+   `content`, regardless of actual sharing state — there is no share/environment/
+   recipient field in that output at all, and `dtctl share dashboard` itself only covers
+   per-user/per-group shares, not the whole-environment case. Since
+   `--share-environment read` is idempotent, the reliable move is to just (re-)apply it
+   rather than trying to check first.
 3. **Free-text dimension/property values must be sanitized before use.** `product`,
    `application`, `job_name` (from `jobDisplayName`), and `request_category` routinely
    contain spaces (e.g. "Order Management"-style names). `transform`'s `sanitize()`

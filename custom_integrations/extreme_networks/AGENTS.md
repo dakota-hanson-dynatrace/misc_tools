@@ -78,7 +78,14 @@ below.
    (same gotcha the `genesys` integration in this repo already found). Visibility is a
    separate share action: `dtctl apply -f dashboard.yaml --share-environment read`
    (whole tenant) or `dtctl share dashboard <id> --user/--group ...` (specific people).
-   Verify with `dtctl get dashboard <id> -o json --plain | grep isPrivate` after applying.
+   **You cannot verify this after the fact from `isPrivate`** — confirmed empirically:
+   `dtctl get dashboard <id> -o json` / `describe` only ever expose `id`, `name`, `type`,
+   `owner`, `isPrivate`, `version`, `modificationInfo`, `content` — no share/environment/
+   recipient field at all, regardless of actual sharing state. `dtctl share dashboard`
+   only covers per-user/per-group shares, not the whole-environment case. Since
+   `--share-environment read` is idempotent, the reliable move is to just (re-)apply it
+   rather than trying to check first — which is exactly how the `genesys` dashboard's
+   sharing was confirmed/fixed in this repo (see its commit history).
 5. **Custom event property field mapping** (confirmed against Dynatrace docs, not
    assumed): `POST /api/v2/events/ingest`'s `eventType` becomes `event.type` in DQL,
    `title` becomes `event.name`, and everything under `properties` becomes flat
