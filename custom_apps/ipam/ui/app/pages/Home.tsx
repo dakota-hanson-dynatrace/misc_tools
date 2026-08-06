@@ -1,43 +1,23 @@
 import React, { useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Flex } from '@dynatrace/strato-components/layouts';
-import { Heading, Paragraph, Text } from '@dynatrace/strato-components/typography';
+import { Heading, Text } from '@dynatrace/strato-components/typography';
 import { Button } from '@dynatrace/strato-components/buttons';
+import { SingleValue } from '@dynatrace/strato-components-preview/charts';
+import Colors from '@dynatrace/strato-design-tokens/colors';
 import { useIpam } from '../context/IpamContext';
 import { getSubnetInfo } from '../utils/ipUtils';
 
-interface StatCardProps {
-  label: string;
-  value: string | number;
-  sub?: string;
+function utilizationColor(pct: number): string {
+  if (pct >= 95) return 'hsl(0, 75%, 55%)';    // red
+  if (pct >= 85) return 'hsl(28, 85%, 55%)';   // orange
+  if (pct >= 70) return 'hsl(48, 90%, 50%)';   // yellow
+  return 'hsl(150, 55%, 45%)';                  // green
 }
-
-const StatCard = ({ label, value, sub }: StatCardProps) => (
-  <Flex
-    flexDirection="column"
-    padding={24}
-    style={{
-      background: 'var(--dt-color-background-base-default)',
-      border: '1px solid var(--dt-color-border-default)',
-      borderRadius: 8,
-      minWidth: 160,
-    }}
-  >
-    <Text style={{ fontSize: 13, color: 'var(--dt-color-text-subdued)' }}>{label}</Text>
-    <Heading level={2} style={{ margin: '4px 0 0' }}>
-      {value}
-    </Heading>
-    {sub && (
-      <Text style={{ fontSize: 12, color: 'var(--dt-color-text-subdued)', marginTop: 2 }}>
-        {sub}
-      </Text>
-    )}
-  </Flex>
-);
 
 export const Home = () => {
   const navigate = useNavigate();
-  const { subnets, ipRecords } = useIpam();
+  const { subnets, ipRecords, isLoading } = useIpam();
 
   const stats = useMemo(() => {
     let totalIps = 0;
@@ -72,6 +52,8 @@ export const Home = () => {
       .slice(0, 5);
   }, [subnets, ipRecords]);
 
+  const available = Math.max(0, stats.totalIps - stats.assigned - stats.reserved);
+
   return (
     <Flex flexDirection="column" padding={32} gap={32}>
       <Flex justifyContent="space-between" alignItems="center">
@@ -84,86 +66,89 @@ export const Home = () => {
         </Flex>
       </Flex>
 
-      <Flex gap={16} flexFlow="wrap">
-        <StatCard label="Total Subnets" value={subnets.length} />
-        <StatCard label="Usable IPs" value={stats.totalIps.toLocaleString()} />
-        <StatCard label="Assigned" value={stats.assigned} />
-        <StatCard label="Reserved" value={stats.reserved} />
-        <StatCard
-          label="Available"
-          value={Math.max(0, stats.totalIps - stats.assigned - stats.reserved).toLocaleString()}
-        />
-      </Flex>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
+        {[
+          { label: 'Total Subnets', value: subnets.length },
+          { label: 'Usable IPs', value: stats.totalIps },
+          { label: 'Assigned', value: stats.assigned },
+          { label: 'Reserved', value: stats.reserved },
+          { label: 'Available', value: available },
+        ].map(({ label, value }) => (
+          <div
+            key={label}
+            style={{
+              background: Colors.Background.Container.Neutral.Default,
+              border: '1px solid var(--dt-color-border-default)',
+              borderRadius: 8,
+              padding: '12px 16px',
+              flex: '1 1 160px',
+              height: 116,
+            }}
+          >
+            <SingleValue label={label} data={value} loading={isLoading} />
+          </div>
+        ))}
+      </div>
 
       {topSubnets.length > 0 && (
-        <Flex flexDirection="column" gap={12}>
-          <Heading level={3}>Top Subnets by Utilization</Heading>
-          <Flex flexDirection="column" gap={8}>
-            {topSubnets.map((s) => (
-              <Flex
+        <Flex
+          flexDirection="column"
+          gap={0}
+          padding={20}
+          style={{
+            background: Colors.Background.Surface.Default,
+            border: `1px solid ${Colors.Border.Neutral.Default}`,
+            borderRadius: 8,
+          }}
+        >
+          <Heading level={3} style={{ marginBottom: 8 }}>Top Subnets by Utilization</Heading>
+          <div style={{ borderTop: `1px solid ${Colors.Border.Neutral.Default}` }} />
+          <Flex flexDirection="column">
+            {topSubnets.map((s, i) => (
+              <div
                 key={s.id}
-                alignItems="center"
-                padding={16}
-                gap={16}
                 style={{
-                  background: 'var(--dt-color-background-base-default)',
-                  border: '1px solid var(--dt-color-border-default)',
-                  borderRadius: 6,
+                  borderTop: i > 0 ? `1px solid ${Colors.Border.Neutral.Default}` : undefined,
                   cursor: 'pointer',
                 }}
                 onClick={() => void navigate(`/subnets/${s.id}`)}
               >
-                <Flex flexDirection="column" style={{ minWidth: 200 }}>
-                  <Text style={{ fontWeight: 600 }}>{s.name}</Text>
-                  <Text style={{ fontSize: 12, color: 'var(--dt-color-text-subdued)' }}>
-                    {s.cidr}
-                  </Text>
-                </Flex>
-                <Flex flexDirection="column" style={{ flex: 1 }}>
-                  <Flex justifyContent="space-between" style={{ marginBottom: 4 }}>
-                    <Text style={{ fontSize: 12 }}>
-                      {s.assigned} / {s.usable} IPs
+                <Flex alignItems="center" padding={16} gap={16}>
+                  <Flex flexDirection="column" style={{ minWidth: 200 }}>
+                    <Text style={{ fontWeight: 600 }}>{s.name}</Text>
+                    <Text style={{ fontSize: 12, color: 'var(--dt-color-text-subdued)' }}>
+                      {s.cidr}
                     </Text>
-                    <Text style={{ fontSize: 12, fontWeight: 600 }}>{s.utilization}%</Text>
                   </Flex>
-                  <div
-                    style={{
-                      height: 6,
-                      background: 'var(--dt-color-border-default)',
-                      borderRadius: 3,
-                      overflow: 'hidden',
-                    }}
-                  >
-                    <div
-                      style={{
-                        height: '100%',
-                        width: `${s.utilization}%`,
-                        background:
-                          s.utilization > 90
-                            ? 'var(--dt-color-indicator-critical)'
-                            : s.utilization > 70
-                              ? 'var(--dt-color-indicator-warning)'
-                              : 'var(--dt-color-indicator-success)',
-                        borderRadius: 3,
-                        transition: 'width 0.3s ease',
-                      }}
-                    />
-                  </div>
-                </Flex>
-                {s.site && (
-                  <Text style={{ fontSize: 12, color: 'var(--dt-color-text-subdued)', minWidth: 80 }}>
-                    {s.site}
+                  <Text style={{ flex: 1, fontSize: 12, color: 'var(--dt-color-text-subdued)' }}>
+                    {s.assigned} / {s.usable} IPs
                   </Text>
-                )}
-              </Flex>
+                  <Text style={{ fontSize: 13, fontWeight: 600, minWidth: 48, textAlign: 'right', color: utilizationColor(s.utilization) }}>
+                    {s.utilization}%
+                  </Text>
+                  {s.site && (
+                    <Text style={{ fontSize: 12, color: 'var(--dt-color-text-subdued)', minWidth: 80 }}>
+                      {s.site}
+                    </Text>
+                  )}
+                </Flex>
+                <div style={{ height: 4, margin: '0 16px 8px', borderRadius: 2, background: Colors.Background.Container.Neutral.Default }}>
+                  <div style={{
+                    height: '100%',
+                    width: `${s.utilization}%`,
+                    background: utilizationColor(s.utilization),
+                    transition: 'width 0.4s ease',
+                  }} />
+                </div>
+              </div>
             ))}
           </Flex>
         </Flex>
       )}
 
-      {subnets.length === 0 && (
+      {!isLoading && subnets.length === 0 && (
         <Flex flexDirection="column" alignItems="center" padding={64} gap={16}>
-          <Paragraph>No subnets yet. Add one manually or import from a CSV file.</Paragraph>
+          <Text>No subnets yet. Add one manually or import from a CSV file.</Text>
           <Flex gap={8}>
             <Button onClick={() => void navigate('/subnets')} variant="accent">
               Add Subnet

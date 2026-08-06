@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo } from 'react';
 import { useDql } from '@dynatrace-sdk/react-hooks';
 
 export interface HostInfo {
@@ -9,7 +9,12 @@ export interface HostInfo {
 const QUERY = 'fetch dt.entity.host | fieldsAdd ipAddress, entity.detected_name | limit 1000';
 
 export function useHostCorrelation(): { hostMap: Map<string, HostInfo>; isLoading: boolean; error: Error | null } {
-  const { data, isLoading, error } = useDql({ query: QUERY });
+  const { data, isLoading, error, refetch } = useDql({ query: QUERY });
+
+  useEffect(() => {
+    const id = setInterval(() => void refetch(), 60_000);
+    return () => clearInterval(id);
+  }, []); // refetch is stable from the SDK
 
   const hostMap = useMemo(() => {
     const map = new Map<string, HostInfo>();
