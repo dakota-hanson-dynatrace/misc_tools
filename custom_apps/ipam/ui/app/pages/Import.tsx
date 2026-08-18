@@ -7,7 +7,7 @@ import { Select } from '@dynatrace/strato-components/forms';
 import { DataTable } from '@dynatrace/strato-components-preview/tables';
 import type { DataTableColumnDef } from '@dynatrace/strato-components-preview/tables';
 import { useIpam } from '../context/IpamContext';
-import { parseCsvRows, isValidCidr, normalizeNetworkAddress } from '../utils/ipUtils';
+import { parseCsvRows, isValidCidr, normalizeNetworkAddress, isValidIpv4 } from '../utils/ipUtils';
 import type { Subnet, IpStatus } from '../types/ipam';
 
 // ─── Subnet import (existing format) ────────────────────────────────────────
@@ -80,11 +80,6 @@ function isSolarWindsFormat(headers: string[]): boolean {
   return headers.includes('IP Address') && headers.includes('Subnet') && headers.includes('Status');
 }
 
-function isValidIpSimple(ip: string): boolean {
-  return /^(\d{1,3}\.){3}\d{1,3}$/.test(ip) &&
-    ip.split('.').map(Number).every((p) => p >= 0 && p <= 255);
-}
-
 // ─── Component ───────────────────────────────────────────────────────────────
 
 export const Import = () => {
@@ -96,6 +91,8 @@ export const Import = () => {
   const [importMode, setImportMode] = useState<'none' | 'subnet' | 'solarwinds'>('none');
   const [imported, setImported] = useState(false);
   const [importSummary, setImportSummary] = useState('');
+  const [importing, setImporting] = useState(false);
+  const [importError, setImportError] = useState('');
 
   // subnet import state
   const [rawRows, setRawRows] = useState<Record<string, string>[]>([]);
@@ -169,7 +166,7 @@ export const Import = () => {
       }
 
       const isDuplicate = existingRecordKeys.has(`${normCidr}|${address}`);
-      const isInvalidIp = !isValidIpSimple(address);
+      const isInvalidIp = !isValidIpv4(address);
 
       return {
         address,
@@ -261,7 +258,7 @@ export const Import = () => {
 
   // ── Import actions ─────────────────────────────────────────────────────────
 
-  function handleSubnetImport() {
+  async function handleSubnetImport() {
     const toAdd = validSubnetRows.map(({ cidr, name, description, site, vlan, owner }) => ({
       cidr,
       name,
@@ -270,12 +267,22 @@ export const Import = () => {
       vlan: vlan || undefined,
       owner: owner || undefined,
     }));
-    importSubnets(toAdd);
-    setImportSummary(`Imported ${toAdd.length} subnet${toAdd.length !== 1 ? 's' : ''}`);
-    setImported(true);
+    setImporting(true);
+    try {
+      const result = await importSubnets(toAdd);
+      setImportSummary(
+        `Imported ${result.added} subnet${result.added !== 1 ? 's' : ''}` +
+        (result.skipped > 0 ? ` (${result.skipped} skipped - overlapping or duplicate CIDR)` : '')
+      );
+      setImported(true);
+    } catch (e: unknown) {
+      setImportError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setImporting(false);
+    }
   }
 
-  function handleSwImport() {
+  async function handleSwImport() {
     const newSubnets = swSubnets
       .filter((s) => s.isNew)
       .map(({ cidr, name, site, vlan }) => ({
@@ -299,15 +306,22 @@ export const Import = () => {
         notes: r.notes || undefined,
       }));
 
-    importIpRecords(newSubnets, validRecords);
-
-    const totalRecords = validRecords.length;
-    const newSubnetCount = newSubnets.length;
-    const parts: string[] = [];
-    if (newSubnetCount > 0) parts.push(`${newSubnetCount} new subnet${newSubnetCount !== 1 ? 's' : ''}`);
-    parts.push(`${totalRecords} IP record${totalRecords !== 1 ? 's' : ''}`);
-    setImportSummary(`Imported ${parts.join(' and ')}`);
-    setImported(true);
+    setImporting(true);
+    try {
+      const result = await importIpRecords(newSubnets, validRecords);
+      const parts: string[] = [];
+      if (result.subnetsAdded > 0) parts.push(`${result.subnetsAdded} new subnet${result.subnetsAdded !== 1 ? 's' : ''}`);
+      parts.push(`${result.added} IP record${result.added !== 1 ? 's' : ''}`);
+      setImportSummary(
+        `Imported ${parts.join(' and ')}` +
+        (result.skipped > 0 ? ` (${result.skipped} skipped - overlapping subnet or duplicate address)` : '')
+      );
+      setImported(true);
+    } catch (e: unknown) {
+      setImportError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setImporting(false);
+    }
   }
 
   // ── Preview columns ────────────────────────────────────────────────────────
@@ -432,6 +446,20 @@ export const Import = () => {
           Choose CSV File
         </Button>
       </Flex>
+
+      {importError && (
+        <Flex
+          padding={8}
+          style={{
+            background: 'var(--dt-color-background-base-default)',
+            border: '1px solid var(--dt-color-indicator-critical)',
+            borderRadius: 6,
+            fontSize: 13,
+          }}
+        >
+          <Text style={{ color: 'var(--dt-color-text-critical)' }}>Import failed: {importError}</Text>
+        </Flex>
+      )}
 
       {/* ── SolarWinds mode ──────────────────────────────────────────────── */}
       {importMode === 'solarwinds' && (
@@ -561,11 +589,11 @@ export const Import = () => {
                 IP Records Preview ({swValidCount} to import, {swSkipCount} skipped)
               </Text>
               <Button
-                onClick={handleSwImport}
+                onClick={() => void handleSwImport()}
                 variant="accent"
-                disabled={swValidCount === 0}
+                disabled={swValidCount === 0 || importing}
               >
-                Import {swValidCount} Record{swValidCount !== 1 ? 's' : ''}
+                {importing ? 'Importing…' : `Import ${swValidCount} Record${swValidCount !== 1 ? 's' : ''}`}
               </Button>
             </Flex>
             <DataTable data={swRows} columns={swPreviewColumns} fullWidth />
@@ -604,8 +632,8 @@ export const Import = () => {
               <Text style={{ fontWeight: 600 }}>
                 Preview ({validSubnetRows.length} valid / {subnetPreview.length} total)
               </Text>
-              <Button onClick={handleSubnetImport} variant="accent" disabled={validSubnetRows.length === 0}>
-                Import {validSubnetRows.length} Subnet{validSubnetRows.length !== 1 ? 's' : ''}
+              <Button onClick={() => void handleSubnetImport()} variant="accent" disabled={validSubnetRows.length === 0 || importing}>
+                {importing ? 'Importing…' : `Import ${validSubnetRows.length} Subnet${validSubnetRows.length !== 1 ? 's' : ''}`}
               </Button>
             </Flex>
             <DataTable data={subnetPreview} columns={subnetPreviewColumns} fullWidth />

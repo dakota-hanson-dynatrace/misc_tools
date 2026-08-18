@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { documentsClient } from '@dynatrace-sdk/client-document';
-import type { Subnet, IpRecord } from '../types/ipam';
+import { functions } from '@dynatrace-sdk/app-utils';
+import { getCurrentUserDetails } from '@dynatrace-sdk/app-environment';
+import type { Subnet, IpRecord, IpamMutation, IpamMutationResult, IpamMutationResponse, NewSubnet, NewIpRecord } from '../types/ipam';
 
 const DOC_ID = 'my-ipam-data-v1';
 const DOC_TYPE = 'my-ipam-data';
@@ -11,35 +13,53 @@ interface IpamData {
   ipRecords: IpRecord[];
 }
 
-function generateId(): string {
-  return Date.now().toString(36) + Math.random().toString(36).slice(2);
-}
-
 function toBlob(data: IpamData): Blob {
   return new Blob([JSON.stringify(data)], { type: 'application/json' });
+}
+
+// All writes go through the `ipamMutate` app function (see api/ipamMutate.function.ts),
+// which validates and stamps createdBy/updatedBy server-side. This hook only ever
+// applies the canonical {subnets, ipRecords} a mutation call returns - it never
+// writes optimistic local state, so a failed mutation can't silently diverge
+// from the server on the next poll.
+
+function extractErrorStatus(e: unknown): number | undefined {
+  const cause = (e as { cause?: unknown })?.cause;
+  if (cause instanceof Response) return cause.status;
+  return (e as { status?: number })?.status;
+}
+
+async function extractErrorMessage(e: unknown): Promise<string> {
+  const cause = (e as { cause?: unknown })?.cause;
+  if (cause instanceof Response) {
+    try {
+      const body: unknown = await cause.clone().json();
+      const msg = (body as { message?: unknown; error?: { message?: unknown } })?.message
+        ?? (body as { error?: { message?: unknown } })?.error?.message;
+      if (typeof msg === 'string') return msg;
+    } catch {
+      // response body wasn't JSON (or already consumed) - fall through
+    }
+  }
+  return e instanceof Error ? e.message : String(e);
 }
 
 export function useDocumentStorage() {
   const [subnets, setSubnets] = useState<Subnet[]>([]);
   const [ipRecords, setIpRecords] = useState<IpRecord[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [saveError, setSaveError] = useState<string | null>(null);
   const [permissionDenied, setPermissionDenied] = useState(false);
   const [needsSetup, setNeedsSetup] = useState(false);
   const [lastSyncedAt, setLastSyncedAt] = useState<Date | null>(null);
 
   const versionRef = useRef<string>('');
-  const existsRef = useRef(false);
-  const latestRef = useRef<IpamData>({ subnets: [], ipRecords: [] });
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const isSavingRef = useRef(false);
+  const isMutatingRef = useRef(false);
 
   useEffect(() => {
     void load();
     return () => {
       if (pollRef.current) clearInterval(pollRef.current);
-      if (timerRef.current) clearTimeout(timerRef.current);
     };
   }, []);
 
@@ -51,13 +71,10 @@ export function useDocumentStorage() {
 
       if (res.metadata) versionRef.current = res.metadata.version;
       if (res.content) {
-        const text = (await res.content.get('text')) as string;
-        const data: IpamData = JSON.parse(text);
-        const s = data.subnets ?? [];
-        const r = data.ipRecords ?? [];
-        setSubnets(s);
-        setIpRecords(r);
-        latestRef.current = { subnets: s, ipRecords: r };
+        const text = await res.content.get('text');
+        const data = JSON.parse(text) as IpamData;
+        setSubnets(data.subnets ?? []);
+        setIpRecords(data.ipRecords ?? []);
       }
       setLastSyncedAt(new Date());
       return true;
@@ -69,7 +86,7 @@ export function useDocumentStorage() {
   function startPolling() {
     if (pollRef.current) clearInterval(pollRef.current);
     pollRef.current = setInterval(() => {
-      if (!isSavingRef.current && !timerRef.current) void fetchAndApply();
+      if (!isMutatingRef.current) void fetchAndApply();
     }, POLL_INTERVAL_MS);
   }
 
@@ -80,18 +97,12 @@ export function useDocumentStorage() {
       setNeedsSetup(false);
 
       const res = await documentsClient.getDocument({ id: DOC_ID, adminAccess: true });
-      if (res.metadata) {
-        versionRef.current = res.metadata.version;
-        existsRef.current = true;
-      }
+      if (res.metadata) versionRef.current = res.metadata.version;
       if (res.content) {
-        const text = (await res.content.get('text')) as string;
-        const data: IpamData = JSON.parse(text);
-        const s = data.subnets ?? [];
-        const r = data.ipRecords ?? [];
-        setSubnets(s);
-        setIpRecords(r);
-        latestRef.current = { subnets: s, ipRecords: r };
+        const text = await res.content.get('text');
+        const data = JSON.parse(text) as IpamData;
+        setSubnets(data.subnets ?? []);
+        setIpRecords(data.ipRecords ?? []);
       }
       setLastSyncedAt(new Date());
       startPolling();
@@ -114,7 +125,6 @@ export function useDocumentStorage() {
         body: { id: DOC_ID, name: 'IPAM Data', type: DOC_TYPE, content: toBlob(emptyData) },
       });
       versionRef.current = meta.version;
-      existsRef.current = true;
       setNeedsSetup(false);
       setLastSyncedAt(new Date());
       startPolling();
@@ -124,140 +134,82 @@ export function useDocumentStorage() {
     }
   }
 
-  function scheduleSave() {
-    if (timerRef.current) clearTimeout(timerRef.current);
-    timerRef.current = setTimeout(() => {
-      timerRef.current = null;
-      void persist();
-    }, 800);
-  }
-
-  async function persist() {
-    if (!existsRef.current) return;
-    isSavingRef.current = true;
-    setSaveError(null);
+  // Sole write path: calls the ipamMutate function and applies whatever it
+  // returns. Throws on validation/save failure - callers decide how to show that.
+  //
+  // Calls functions.call() directly rather than useAppFunction/refetch: that hook
+  // closes over `data` from its own creation-time params and its refetch() ignores
+  // any argument passed to it, so a fresh per-call payload can never reach it.
+  async function mutate(payload: IpamMutation): Promise<IpamMutationResult> {
+    isMutatingRef.current = true;
     try {
-      const meta = await documentsClient.updateDocumentContent({
-        id: DOC_ID,
-        optimisticLockingVersion: versionRef.current,
-        body: { content: toBlob(latestRef.current) },
-        adminAccess: true,
-      });
-      versionRef.current = meta.version;
+      const user = getCurrentUserDetails();
+      const reportedBy = user.email || user.name || user.id;
+      const res = await functions.call('ipamMutate', { data: { mutation: payload, reportedBy } });
+      const response = (await res.json()) as IpamMutationResponse;
+      if (!response.ok) throw new Error(response.message);
+      const result = response.result;
+      versionRef.current = result.version;
+      setSubnets(result.subnets);
+      setIpRecords(result.ipRecords);
       setLastSyncedAt(new Date());
+      return result;
     } catch (e: unknown) {
-      const status = (e as { status?: number })?.status;
-      const msg = (e as { message?: string })?.message ?? String(e);
-      console.error('IPAM save failed:', status, msg, e);
-      if (status === 409) {
-        await fetchAndApply(true);
-        setSaveError('Someone else saved a change at the same time. The latest data has been loaded — please redo your edit.');
-      } else if (status === 403 || status === 401) {
-        setPermissionDenied(true);
-      } else {
-        setSaveError(`Save failed (${status ?? 'unknown error'}): ${msg}`);
-      }
+      if (extractErrorStatus(e) === 401 || extractErrorStatus(e) === 403) setPermissionDenied(true);
+      await fetchAndApply(true); // resync local state to the server truth after any failed write
+      throw new Error(await extractErrorMessage(e));
     } finally {
-      isSavingRef.current = false;
+      isMutatingRef.current = false;
     }
   }
 
-  function mutateSubnets(updater: (prev: Subnet[]) => Subnet[]) {
-    setSubnets((prev) => {
-      const next = updater(prev);
-      latestRef.current = { ...latestRef.current, subnets: next };
-      scheduleSave();
-      return next;
-    });
+  async function addSubnet(subnet: NewSubnet): Promise<void> {
+    await mutate({ type: 'addSubnet', subnet });
   }
 
-  function mutateRecords(updater: (prev: IpRecord[]) => IpRecord[]) {
-    setIpRecords((prev) => {
-      const next = updater(prev);
-      latestRef.current = { ...latestRef.current, ipRecords: next };
-      scheduleSave();
-      return next;
-    });
+  async function updateSubnet(id: string, updates: Partial<NewSubnet>): Promise<void> {
+    await mutate({ type: 'updateSubnet', id, updates });
   }
 
-  function addSubnet(subnet: Omit<Subnet, 'id' | 'createdAt'>): Subnet {
-    const next: Subnet = { ...subnet, id: generateId(), createdAt: new Date().toISOString() };
-    mutateSubnets((prev) => [...prev, next]);
-    return next;
+  async function deleteSubnet(id: string): Promise<void> {
+    await mutate({ type: 'deleteSubnet', id });
   }
 
-  function updateSubnet(id: string, updates: Partial<Omit<Subnet, 'id' | 'createdAt'>>): void {
-    mutateSubnets((prev) => prev.map((s) => (s.id === id ? { ...s, ...updates } : s)));
+  async function addIpRecord(record: NewIpRecord): Promise<void> {
+    await mutate({ type: 'addIpRecord', record });
   }
 
-  function deleteSubnet(id: string): void {
-    mutateSubnets((prev) => prev.filter((s) => s.id !== id));
-    mutateRecords((prev) => prev.filter((r) => r.subnetId !== id));
+  async function addIpRecords(records: NewIpRecord[]): Promise<IpamMutationResult> {
+    return mutate({ type: 'addIpRecords', records });
   }
 
-  function addIpRecord(record: Omit<IpRecord, 'id' | 'updatedAt'>): IpRecord {
-    const next: IpRecord = { ...record, id: generateId(), updatedAt: new Date().toISOString() };
-    mutateRecords((prev) => [...prev, next]);
-    return next;
+  async function updateIpRecord(id: string, updates: Partial<Omit<NewIpRecord, 'subnetId'>>): Promise<void> {
+    await mutate({ type: 'updateIpRecord', id, updates });
   }
 
-  function updateIpRecord(id: string, updates: Partial<Omit<IpRecord, 'id' | 'subnetId'>>): void {
-    mutateRecords((prev) =>
-      prev.map((r) => (r.id === id ? { ...r, ...updates, updatedAt: new Date().toISOString() } : r))
-    );
-  }
-
-  function deleteIpRecord(id: string): void {
-    mutateRecords((prev) => prev.filter((r) => r.id !== id));
+  async function deleteIpRecord(id: string): Promise<void> {
+    await mutate({ type: 'deleteIpRecord', id });
   }
 
   function getSubnetRecords(subnetId: string): IpRecord[] {
     return ipRecords.filter((r) => r.subnetId === subnetId);
   }
 
-  function importSubnets(newSubnets: Omit<Subnet, 'id' | 'createdAt'>[]): void {
-    const ts = new Date().toISOString();
-    mutateSubnets((prev) => [
-      ...prev,
-      ...newSubnets.map((s) => ({ ...s, id: generateId(), createdAt: ts })),
-    ]);
+  async function importSubnets(newSubnets: NewSubnet[]): Promise<IpamMutationResult> {
+    return mutate({ type: 'importSubnets', subnets: newSubnets });
   }
 
-  function importIpRecords(
-    newSubnets: Omit<Subnet, 'id' | 'createdAt'>[],
-    newRecords: Array<Omit<IpRecord, 'id' | 'updatedAt'> & { _tempSubnetCidr: string }>
-  ): void {
-    const ts = new Date().toISOString();
-    const cidrToId = new Map<string, string>();
-    latestRef.current.subnets.forEach((s) => cidrToId.set(s.cidr, s.id));
-
-    const createdSubnets = newSubnets.map((s) => {
-      const id = generateId();
-      cidrToId.set(s.cidr, id);
-      return { ...s, id, createdAt: ts };
-    });
-
-    const resolvedRecords = newRecords
-      .map(({ _tempSubnetCidr, subnetId: _ignored, ...r }) => {
-        const subnetId = cidrToId.get(_tempSubnetCidr);
-        if (!subnetId) return null;
-        return { ...r, subnetId, id: generateId(), updatedAt: ts };
-      })
-      .filter((r): r is IpRecord => r !== null);
-
-    const nextSubnets = [...latestRef.current.subnets, ...createdSubnets];
-    const nextRecords = [...latestRef.current.ipRecords, ...resolvedRecords];
-    latestRef.current = { subnets: nextSubnets, ipRecords: nextRecords };
-    setSubnets(nextSubnets);
-    setIpRecords(nextRecords);
-    scheduleSave();
+  async function importIpRecords(
+    newSubnets: NewSubnet[],
+    newRecords: Array<NewIpRecord & { _tempSubnetCidr: string }>
+  ): Promise<IpamMutationResult> {
+    return mutate({ type: 'importIpRecords', subnets: newSubnets, records: newRecords });
   }
 
   return {
     subnets,
     ipRecords,
     isLoading,
-    saveError,
     permissionDenied,
     needsSetup,
     lastSyncedAt,
@@ -266,6 +218,7 @@ export function useDocumentStorage() {
     updateSubnet,
     deleteSubnet,
     addIpRecord,
+    addIpRecords,
     updateIpRecord,
     deleteIpRecord,
     getSubnetRecords,

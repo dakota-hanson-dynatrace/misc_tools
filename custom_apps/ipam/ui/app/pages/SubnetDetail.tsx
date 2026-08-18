@@ -9,7 +9,7 @@ import { DataTable } from '@dynatrace/strato-components-preview/tables';
 import type { DataTableColumnDef } from '@dynatrace/strato-components-preview/tables';
 import { useIpam } from '../context/IpamContext';
 import { useHostCorrelation, type HostInfo } from '../hooks/useHostCorrelation';
-import { getSubnetInfo, isIpInCidr } from '../utils/ipUtils';
+import { getSubnetInfo, isIpInCidr, isValidIpv4 } from '../utils/ipUtils';
 import type { IpRecord, IpStatus } from '../types/ipam';
 
 const STATUS_COLORS: Record<IpStatus, string> = {
@@ -23,7 +23,7 @@ const emptyForm = { address: '', status: 'available' as IpStatus, hostname: '', 
 export const SubnetDetail = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { subnets, addIpRecord, updateIpRecord, deleteIpRecord, getSubnetRecords } = useIpam();
+  const { subnets, addIpRecord, addIpRecords, updateIpRecord, deleteIpRecord, getSubnetRecords } = useIpam();
   const { hostMap, isLoading: hostsLoading, error: hostsError } = useHostCorrelation();
 
   const subnet = subnets.find((s) => s.id === id);
@@ -33,6 +33,7 @@ export const SubnetDetail = () => {
   const [editId, setEditId] = useState<string | null>(null);
   const [form, setForm] = useState(emptyForm);
   const [addressError, setAddressError] = useState('');
+  const [saving, setSaving] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [syncResult, setSyncResult] = useState<string | null>(null);
   const [showSyncPreview, setShowSyncPreview] = useState(false);
@@ -111,7 +112,15 @@ export const SubnetDetail = () => {
       {
         id: 'updatedAt',
         header: 'Last Updated',
-        accessor: (r) => new Date(r.updatedAt).toLocaleDateString(),
+        accessor: (r) => r,
+        cell: ({ value: r }: { value: IpRecord }) => (
+          <Flex flexDirection="column" style={{ lineHeight: 1.3 }}>
+            <Text style={{ fontSize: 12 }}>{new Date(r.updatedAt).toLocaleDateString()}</Text>
+            {r.updatedBy && (
+              <Text style={{ fontSize: 11, color: 'var(--dt-color-text-subdued)' }}>{r.updatedBy}</Text>
+            )}
+          </Flex>
+        ),
       },
     ],
     [hostMap]
@@ -146,27 +155,32 @@ export const SubnetDetail = () => {
     setShowModal(true);
   }
 
-  function isValidIp(ip: string): boolean {
-    return /^(\d{1,3}\.){3}\d{1,3}$/.test(ip) &&
-      ip.split('.').map(Number).every((p) => p >= 0 && p <= 255);
-  }
-
-  function handleSave() {
-    if (!isValidIp(form.address)) {
+  async function handleSave() {
+    if (!isValidIpv4(form.address)) {
       setAddressError('Enter a valid IPv4 address (e.g. 192.168.1.10)');
       return;
     }
-    if (editId) {
-      updateIpRecord(editId, form);
-    } else {
-      if (subnet) addIpRecord({ ...form, subnetId: subnet.id });
+    setSaving(true);
+    try {
+      if (editId) {
+        await updateIpRecord(editId, form);
+      } else if (subnet) {
+        await addIpRecord({ ...form, subnetId: subnet.id });
+      }
+      setShowModal(false);
+    } catch (e: unknown) {
+      setAddressError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSaving(false);
     }
-    setShowModal(false);
   }
 
-  function handleDelete(recordId: string) {
-    if (confirm('Remove this IP record?')) {
-      deleteIpRecord(recordId);
+  async function handleDelete(recordId: string) {
+    if (!confirm('Remove this IP record?')) return;
+    try {
+      await deleteIpRecord(recordId);
+    } catch (e: unknown) {
+      alert(`Remove failed: ${e instanceof Error ? e.message : String(e)}`);
     }
   }
 
@@ -195,28 +209,34 @@ export const SubnetDetail = () => {
     setShowSyncPreview(true);
   }
 
-  function handleConfirmSync() {
+  async function handleConfirmSync() {
     if (!subnet) return;
     setSyncing(true);
-    for (const { ip, hostname, entityId } of syncPreview.toAdd) {
-      addIpRecord({
-        subnetId: subnet.id,
-        address: ip,
-        status: 'assigned',
-        hostname,
-        owner: '',
-        notes: `Synced from Dynatrace (${entityId})`,
-      });
+    try {
+      // One bulk call instead of one function round-trip per host: keeps sync
+      // fast and lets the server re-validate everything against fresh data.
+      const result = await addIpRecords(
+        syncPreview.toAdd.map(({ ip, hostname, entityId }) => ({
+          subnetId: subnet.id,
+          address: ip,
+          status: 'assigned',
+          hostname,
+          owner: '',
+          notes: `Synced from Dynatrace (${entityId})`,
+        }))
+      );
+      setShowSyncPreview(false);
+      const skipped = result.skipped + syncPreview.conflicts.length;
+      setSyncResult(
+        `${result.added > 0 ? `Added ${result.added} record${result.added !== 1 ? 's' : ''}` : 'No new records added'}.` +
+        (skipped > 0 ? ` ${skipped} existing record${skipped !== 1 ? 's' : ''} left unchanged.` : '')
+      );
+      setTimeout(() => setSyncResult(null), 6000);
+    } catch (e: unknown) {
+      setSyncResult(`Sync failed: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setSyncing(false);
     }
-    setSyncing(false);
-    setShowSyncPreview(false);
-    const added = syncPreview.toAdd.length;
-    const skipped = syncPreview.conflicts.length;
-    setSyncResult(
-      `${added > 0 ? `Added ${added} record${added !== 1 ? 's' : ''}` : 'No new records added'}.` +
-      (skipped > 0 ? ` ${skipped} existing record${skipped !== 1 ? 's' : ''} left unchanged.` : '')
-    );
-    setTimeout(() => setSyncResult(null), 6000);
   }
 
   const field = (key: keyof typeof form) => (value: string) =>
@@ -333,7 +353,7 @@ export const SubnetDetail = () => {
           {(row: IpRecord) => (
             <Flex gap={8}>
               <Button onClick={() => openEdit(row)}>Edit</Button>
-              <Button onClick={() => handleDelete(row.id)}>
+              <Button onClick={() => void handleDelete(row.id)}>
                 Remove
               </Button>
             </Flex>
@@ -355,9 +375,9 @@ export const SubnetDetail = () => {
             <Flex gap={8}>
               <Button onClick={() => setShowSyncPreview(false)}>Cancel</Button>
               <Button
-                onClick={handleConfirmSync}
+                onClick={() => void handleConfirmSync()}
                 variant="accent"
-                disabled={syncPreview.toAdd.length === 0}
+                disabled={syncPreview.toAdd.length === 0 || syncing}
               >
                 {syncPreview.toAdd.length > 0
                   ? `Add ${syncPreview.toAdd.length} record${syncPreview.toAdd.length !== 1 ? 's' : ''}`
@@ -495,8 +515,8 @@ export const SubnetDetail = () => {
         footer={
           <Flex justifyContent="flex-end" gap={8}>
             <Button onClick={() => setShowModal(false)}>Cancel</Button>
-            <Button onClick={handleSave} variant="accent">
-              {editId ? 'Save' : 'Add'}
+            <Button onClick={() => void handleSave()} variant="accent" disabled={saving}>
+              {saving ? 'Saving…' : editId ? 'Save' : 'Add'}
             </Button>
           </Flex>
         }

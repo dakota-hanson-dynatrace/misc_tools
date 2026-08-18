@@ -87,7 +87,7 @@ const PermissionDeniedScreen = () => (
 );
 
 const AppRoutes = () => {
-  const { isLoading, saveError, permissionDenied, needsSetup } = useIpam();
+  const { isLoading, permissionDenied, needsSetup } = useIpam();
 
   if (isLoading) {
     return (
@@ -102,15 +102,6 @@ const AppRoutes = () => {
 
   return (
     <Flex flexDirection="column" style={{ height: '100%' }}>
-      {saveError && (
-        <Flex
-          padding={8}
-          justifyContent="center"
-          style={{ background: 'var(--dt-color-background-critical-default)', fontSize: 13, flexShrink: 0 }}
-        >
-          <Text style={{ color: 'var(--dt-color-text-critical)' }}>{saveError}</Text>
-        </Flex>
-      )}
       <Routes>
         <Route path="/" element={<Home />} />
         <Route path="/subnets" element={<Subnets />} />

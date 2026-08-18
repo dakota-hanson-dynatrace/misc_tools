@@ -27,6 +27,7 @@ export const Subnets = () => {
   const [editId, setEditId] = useState<string | null>(null);
   const [form, setForm] = useState(emptyForm);
   const [cidrError, setCidrError] = useState('');
+  const [saving, setSaving] = useState(false);
 
   const rows: SubnetRow[] = useMemo(() => {
     return subnets.map((s) => {
@@ -112,24 +113,34 @@ export const Subnets = () => {
     setShowModal(true);
   }
 
-  function handleSave() {
+  async function handleSave() {
     if (!isValidCidr(form.cidr)) {
       setCidrError('Invalid CIDR notation (e.g. 192.168.1.0/24)');
       return;
     }
     const normalized = normalizeNetworkAddress(form.cidr);
     const payload = { ...form, cidr: normalized };
-    if (editId) {
-      updateSubnet(editId, payload);
-    } else {
-      addSubnet(payload);
+    setSaving(true);
+    try {
+      if (editId) {
+        await updateSubnet(editId, payload);
+      } else {
+        await addSubnet(payload);
+      }
+      setShowModal(false);
+    } catch (e: unknown) {
+      setCidrError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSaving(false);
     }
-    setShowModal(false);
   }
 
-  function handleDelete(id: string) {
-    if (confirm('Delete this subnet and all its IP records?')) {
-      deleteSubnet(id);
+  async function handleDelete(id: string) {
+    if (!confirm('Delete this subnet and all its IP records?')) return;
+    try {
+      await deleteSubnet(id);
+    } catch (e: unknown) {
+      alert(`Delete failed: ${e instanceof Error ? e.message : String(e)}`);
     }
   }
 
@@ -156,7 +167,7 @@ export const Subnets = () => {
                 View IPs
               </Button>
               <Button onClick={() => openEdit(row)}>Edit</Button>
-              <Button onClick={() => handleDelete(row.id)}>
+              <Button onClick={() => void handleDelete(row.id)}>
                 Delete
               </Button>
             </Flex>
@@ -172,8 +183,8 @@ export const Subnets = () => {
         footer={
           <Flex justifyContent="flex-end" gap={8}>
             <Button onClick={() => setShowModal(false)}>Cancel</Button>
-            <Button onClick={handleSave} variant="accent">
-              {editId ? 'Save' : 'Add'}
+            <Button onClick={() => void handleSave()} variant="accent" disabled={saving}>
+              {saving ? 'Saving…' : editId ? 'Save' : 'Add'}
             </Button>
           </Flex>
         }

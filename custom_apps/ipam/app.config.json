@@ -3,7 +3,7 @@
   "environmentUrl": "https://mfa20993.apps.dynatrace.com/",
   "app": {
     "name": "IPAM",
-    "version": "0.2.0",
+    "version": "0.2.1",
     "description": "A starting project with routing, fetching data, and charting",
     "id": "my.ipam",
     "scopes": [

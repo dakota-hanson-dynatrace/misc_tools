@@ -1,8 +1,19 @@
-# Getting Started with your Dynatrace App
+# IPAM
 
-This project was bootstrapped with Dynatrace App Toolkit.
+A Dynatrace custom app for tracking subnets and IP address assignments: manual entry, CSV import (including a dedicated SolarWinds IPAM import path), and correlation against Dynatrace-monitored host entities via "Sync from Dynatrace."
 
-It uses React in combination with TypeScript, to provide great developer experience.
+This project was bootstrapped with Dynatrace App Toolkit and uses React with TypeScript for the UI.
+
+## Architecture
+
+- **UI** (`ui/`) — reads subnet/IP data directly from the Document Service (`my-ipam-data-v1`) and polls every 20s to pick up other users' changes.
+- **Backend** (`api/ipamMutate.function.ts`) — the sole write path. Every subnet/IP-record mutation (add, update, delete, bulk import, host sync) is routed through this one serverless function, which:
+  - validates CIDR overlap and duplicate IP addresses before writing, using a precomputed bounds/key index so bulk imports don't rescan the whole data set per row
+  - stamps `createdBy`/`updatedBy` from the authenticated caller, falling back to the browser-reported identity if the runtime doesn't populate it
+  - retries automatically on optimistic-locking conflicts
+  - never throws or rejects itself — it always returns `{ ok: true, result }` or `{ ok: false, message }`, because an exception that escapes the function is reported by the Dynatrace runtime as a generic "Execution crashed" with the actual message lost
+
+This is an application-level write-path guarantee, not an IAM boundary: the function runs under the same document scopes the browser bundle already holds (see `initializeDatabase`/`load` in `ui/app/hooks/useDocumentStorage.ts`), so it centralizes validation and attribution for this app's own UI rather than enforcing them at the platform's permission layer.
 
 ## Available Scripts
 

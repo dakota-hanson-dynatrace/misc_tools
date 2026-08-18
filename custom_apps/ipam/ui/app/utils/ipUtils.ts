@@ -59,6 +59,56 @@ export function normalizeNetworkAddress(cidr: string): string {
   return `${intToIp(networkInt)}/${prefix}`;
 }
 
+export function isValidIpv4(ip: string): boolean {
+  return /^(\d{1,3}\.){3}\d{1,3}$/.test(ip) && ip.split('.').map(Number).every((p) => p >= 0 && p <= 255);
+}
+
+export interface CidrBounds {
+  networkInt: number;
+  broadcastInt: number;
+}
+
+export function cidrBounds(cidr: string): CidrBounds {
+  const info = getSubnetInfo(cidr);
+  return { networkInt: ipToInt(info.networkAddress), broadcastInt: ipToInt(info.broadcastAddress) };
+}
+
+function boundsOverlap(a: CidrBounds, b: CidrBounds): boolean {
+  return a.networkInt <= b.broadcastInt && b.networkInt <= a.broadcastInt;
+}
+
+export function cidrsOverlap(cidrA: string, cidrB: string): boolean {
+  return boundsOverlap(cidrBounds(cidrA), cidrBounds(cidrB));
+}
+
+export function findOverlappingSubnet<T extends { id: string; cidr: string }>(
+  cidr: string,
+  subnets: T[],
+  excludeId?: string
+): T | undefined {
+  return subnets.find((s) => s.id !== excludeId && cidrsOverlap(cidr, s.cidr));
+}
+
+// Precomputes each subnet's bounds once so a bulk import/sync can check many
+// new CIDRs against a large existing set without recomputing getSubnetInfo
+// (string parsing + bit math) for the same unchanged subnets on every check.
+export class SubnetOverlapIndex<T extends { id: string; cidr: string }> {
+  private entries: Array<{ subnet: T; bounds: CidrBounds }>;
+
+  constructor(subnets: T[]) {
+    this.entries = subnets.map((subnet) => ({ subnet, bounds: cidrBounds(subnet.cidr) }));
+  }
+
+  findClash(cidr: string, excludeId?: string): T | undefined {
+    const bounds = cidrBounds(cidr);
+    return this.entries.find((e) => e.subnet.id !== excludeId && boundsOverlap(bounds, e.bounds))?.subnet;
+  }
+
+  add(subnet: T): void {
+    this.entries.push({ subnet, bounds: cidrBounds(subnet.cidr) });
+  }
+}
+
 export function isIpInCidr(ip: string, cidr: string): boolean {
   try {
     const [, prefixStr] = cidr.split('/');
