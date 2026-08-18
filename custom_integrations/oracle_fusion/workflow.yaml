@@ -35,6 +35,10 @@ tasks:
           // notes for its own OAuth client id/secret.
           const clientId = "{{ secret('oracle_fusion_client_id') }}";
           const clientSecret = "{{ secret('oracle_fusion_client_secret') }}";
+          // oracle_fusion_client_id is UUID format; oracle_fusion_client_secret is alphanumeric.
+          // Regex excludes base64 chars (+/=) - those appear in the encoded output, not the raw secret.
+          if (!/^[\w.\-@]{1,256}$/.test(clientId)) throw new Error('oracle_fusion_client_id vault value contains disallowed characters');
+          if (!/^[\w.\-@!#$%^&*]{1,256}$/.test(clientSecret)) throw new Error('oracle_fusion_client_secret vault value contains disallowed characters');
           const iamDomainUrl = "https://idcs-REPLACE.identity.oraclecloud.com"; // TODO: customer's OCI IAM identity domain URL
           // TODO: confirm exact scope with the customer's IAM admin -- ESS spans every
           // product (HCM/ERP/SCM), but the documented scope pattern is per-product
@@ -287,7 +291,7 @@ tasks:
           }
 
           const dtToken = "{{ secret('dt_ingest_token') }}";
-          const dtEnvUrl = "https://mfa20993.apps.dynatrace.com"; // TODO: replace per target tenant
+          const dtEnvUrl = "https://<YOUR-TENANT-ID>.apps.dynatrace.com"; // TODO: replace per target tenant
 
           const resp = await fetch(`${dtEnvUrl}/api/v2/metrics/ingest`, {
             method: 'POST',
@@ -332,7 +336,7 @@ tasks:
           }
 
           const dtToken = "{{ secret('dt_ingest_token') }}";
-          const dtEnvUrl = "https://mfa20993.apps.dynatrace.com"; // TODO: replace per target tenant
+          const dtEnvUrl = "https://<YOUR-TENANT-ID>.apps.dynatrace.com"; // TODO: replace per target tenant
 
           // One POST per event -- Events Ingest v2 takes a single event per call, unlike
           // the batched line-protocol metrics ingest accepts. Fine at typical ESS failure

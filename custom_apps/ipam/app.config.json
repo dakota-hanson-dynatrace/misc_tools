@@ -1,6 +1,6 @@
 {
   "$schema": "./.dt-app/app.config.schema.json",
-  "environmentUrl": "https://mfa20993.apps.dynatrace.com/",
+  "environmentUrl": "https://<YOUR-TENANT-ID>.apps.dynatrace.com/",
   "app": {
     "name": "IPAM",
     "version": "0.2.1",

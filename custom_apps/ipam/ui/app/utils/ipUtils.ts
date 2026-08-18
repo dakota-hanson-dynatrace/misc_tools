@@ -122,16 +122,34 @@ export function isIpInCidr(ip: string, cidr: string): boolean {
   }
 }
 
+function parseRfc4180Row(line: string): string[] {
+  const values: string[] = [];
+  let current = '';
+  let inQuotes = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (inQuotes) {
+      if (ch === '"' && line[i + 1] === '"') { current += '"'; i++; }
+      else if (ch === '"') { inQuotes = false; }
+      else { current += ch; }
+    } else {
+      if (ch === '"') { inQuotes = true; }
+      else if (ch === ',') { values.push(current.trim()); current = ''; }
+      else { current += ch; }
+    }
+  }
+  values.push(current.trim());
+  return values;
+}
+
 export function parseCsvRows(text: string): Record<string, string>[] {
   const lines = text.trim().split(/\r?\n/);
   if (lines.length < 2) return [];
-  const headers = lines[0].split(',').map((h) => h.trim().replace(/^"|"$/g, ''));
+  const headers = parseRfc4180Row(lines[0]);
   return lines.slice(1).map((line) => {
-    const values = line.split(',').map((v) => v.trim().replace(/^"|"$/g, ''));
+    const values = parseRfc4180Row(line);
     const row: Record<string, string> = {};
-    headers.forEach((h, i) => {
-      row[h] = values[i] ?? '';
-    });
+    headers.forEach((h, i) => { row[h] = values[i] ?? ''; });
     return row;
   });
 }

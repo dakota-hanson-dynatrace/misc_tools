@@ -195,7 +195,7 @@ const MISSING_USER_SENTINEL = 'dt.missing.user.id';
 export default async function (request: IpamMutationRequest): Promise<IpamMutationResponse> {
   try {
     const user = getCurrentUserDetails();
-    const actor = user.id !== MISSING_USER_SENTINEL ? (user.email || user.name || user.id) : request.reportedBy;
+    const actor = user.id !== MISSING_USER_SENTINEL ? (user.email || user.name || user.id) : String(request.reportedBy ?? '').slice(0, 200) || 'unknown';
     const payload = request.mutation;
 
     for (let attempt = 0; attempt < 3; attempt++) {

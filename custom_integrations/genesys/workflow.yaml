@@ -34,6 +34,10 @@ tasks:
           // (URL-safe strings); revisit if this pattern is reused for freeform secrets.
           const clientId = "{{ secret('genesys_client_id') }}";
           const clientSecret = "{{ secret('genesys_client_secret') }}";
+          // genesys_client_id is UUID format; genesys_client_secret is alphanumeric.
+          // Regex excludes base64 chars (+/=) - those appear in the encoded output, not the raw secret.
+          if (!/^[\w.\-@]{1,256}$/.test(clientId)) throw new Error('genesys_client_id vault value contains disallowed characters');
+          if (!/^[\w.\-@!#$%^&*]{1,256}$/.test(clientSecret)) throw new Error('genesys_client_secret vault value contains disallowed characters');
           const region = "mypurecloud.com"; // TODO: replace with the customer's Genesys Cloud region
 
           const basicAuth = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
@@ -253,7 +257,7 @@ tasks:
           }
 
           const dtToken = "{{ secret('dt_metrics_ingest_token') }}"; // see get_token's note on unescaped secret values
-          const dtEnvUrl = "https://mfa20993.apps.dynatrace.com"; // TODO: replace per target tenant
+          const dtEnvUrl = "https://<YOUR-TENANT-ID>.apps.dynatrace.com"; // TODO: replace per target tenant
 
           const resp = await fetch(`${dtEnvUrl}/api/v2/metrics/ingest`, {
             method: 'POST',

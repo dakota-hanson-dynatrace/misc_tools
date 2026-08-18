@@ -14,8 +14,8 @@ read -p "Enter AWS account ID (12-digit number): " AWS_ACCOUNT_ID
 read -p "Enter deployment region (e.g., us-east-1): " DEPLOYMENT_REGION
 read -p "Enter monitored regions (comma-separated, e.g., us-west-1,us-west-2): " MONITORED_REGIONS
 read -p "Enter Dynatrace environment URL (e.g., https://abc.live.dynatrace.com): " ENV_URL
-read -p "Enter Dynatrace Platform SETTINGS token: " SETTINGS_TOKEN
-read -p "Enter Dynatrace Platform INGEST token: " INGEST_TOKEN
+read -sp "Enter Dynatrace Platform SETTINGS token: " SETTINGS_TOKEN; echo
+read -sp "Enter Dynatrace Platform INGEST token: " INGEST_TOKEN; echo
 
 # Validate configuration name
 if [[ ! $CONFIG_NAME =~ ^[a-zA-Z][a-zA-Z0-9-]*$ ]]; then

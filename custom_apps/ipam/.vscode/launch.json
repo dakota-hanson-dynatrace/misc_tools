@@ -5,8 +5,8 @@
       "name": "Debug Frontend (UI & Widgets)",
       "request": "launch",
       "type": "chrome",
-      // Needs to be updated when environmentUrl is changed in app.config.ts
-      "url": "https://mfa20993.apps.dynatrace.com/ui/apps/local-dev-server/?locationAppIds=http%3A%2F%2Flocalhost%3A3000%2Fui%2Clocal-dev-server",
+      // Needs to be updated to match environmentUrl in app.config.json
+      "url": "https://<YOUR-TENANT-ID>.apps.dynatrace.com/ui/apps/local-dev-server/?locationAppIds=http%3A%2F%2Flocalhost%3A3000%2Fui%2Clocal-dev-server",
       "pathMapping": {
         "/": "${workspaceFolder}",
         "localhost:3000/": "${workspaceFolder}",

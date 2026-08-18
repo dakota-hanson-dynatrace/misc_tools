@@ -1,4 +1,4 @@
-id: ad9dda19-6cfd-44ff-8c12-d9275f0b04d7
+# id: <your-workflow-id>  # remove to create new; set to your UUID to update an existing deployment
 title: "Extreme Platform ONE - Wireless Experience Ingestion"
 description: >-
   Polls Extreme Platform ONE (cloudapi.extremecloudiq.com) every 5 minutes for
@@ -31,6 +31,8 @@ tasks:
       script: |
         export default async function () {
           const apiKey = "{{ secret('extreme_platform_one_api_key') }}";
+          // extreme_platform_one_api_key is expected to be an alphanumeric API key.
+          if (!/^[\w.\-@!#$%^&*]{1,512}$/.test(apiKey)) throw new Error('extreme_platform_one_api_key vault value contains disallowed characters');
           const baseUrl = 'https://cloudapi.extremecloudiq.com';
 
           async function fetchWithRetry(url, options) {
@@ -93,6 +95,8 @@ tasks:
       script: |
         export default async function () {
           const apiKey = "{{ secret('extreme_platform_one_api_key') }}";
+          // extreme_platform_one_api_key is expected to be an alphanumeric API key.
+          if (!/^[\w.\-@!#$%^&*]{1,512}$/.test(apiKey)) throw new Error('extreme_platform_one_api_key vault value contains disallowed characters');
           const baseUrl = 'https://cloudapi.extremecloudiq.com';
 
           async function fetchWithRetry(url, options) {
@@ -239,7 +243,7 @@ tasks:
           }
 
           const dtToken = "{{ secret('dt_ingest_token') }}";
-          const dtEnvUrl = "https://mfa20993.apps.dynatrace.com"; // TODO: replace per target tenant
+          const dtEnvUrl = "https://<YOUR-TENANT-ID>.apps.dynatrace.com"; // TODO: replace per target tenant
 
           const resp = await fetch(`${dtEnvUrl}/api/v2/metrics/ingest`, {
             method: 'POST',
@@ -284,7 +288,7 @@ tasks:
           }
 
           const dtToken = "{{ secret('dt_ingest_token') }}";
-          const dtEnvUrl = "https://mfa20993.apps.dynatrace.com"; // TODO: replace per target tenant
+          const dtEnvUrl = "https://<YOUR-TENANT-ID>.apps.dynatrace.com"; // TODO: replace per target tenant
 
           // ponytail: one POST per alert -- Events Ingest v2 takes a single event per call,
           // unlike the batched line-protocol/multi-event bodies metrics/bizevents ingest

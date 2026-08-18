@@ -2,7 +2,7 @@ locals {
   # CFN template URL is the same as your wget step, but Terraform can use it directly
   cfn_template_url = "https://dynatrace-data-acquisition.s3.amazonaws.com/aws/deployment/cfn/${var.cfn_template_version}/da-aws-activation.yaml"
 
-  # Keep featureSets identical to your bash payload [1](https://dynatrace-my.sharepoint.com/personal/jacob_norkus_dynatrace_com/Documents/Microsoft%20Copilot%20Chat%20Files/awsmonv3.sh)
+  # Keep featureSets identical to the payload in awsmonv3.sh
   feature_sets = [
     "ApiGateway_essential", "ApplicationELB_essential", "AutoScaling_essential", "CloudFront_essential",
     "DynamoDB_essential", "EBS_essential", "EC2_essential", "ECR_essential", "ECS_essential", "EFS_essential",
@@ -19,9 +19,9 @@ locals {
 # This resource configures a monitoring configuration for an extension and expects JSON in `value`. [2](https://registry.terraform.io/providers/dynatrace-oss/dynatrace/latest/docs/resources/hub_extension_config)
 resource "dynatrace_hub_extension_config" "da_aws_monitoring_configuration" {
   name  = "com.dynatrace.extension.da-aws"
-  scope = "integration-aws" # matches your bash payload's scope [1](https://dynatrace-my.sharepoint.com/personal/jacob_norkus_dynatrace_com/Documents/Microsoft%20Copilot%20Chat%20Files/awsmonv3.sh)
+  scope = "integration-aws" # matches the scope in awsmonv3.sh
 
-  # `value` corresponds to the inner "value" object your script posts [1](https://dynatrace-my.sharepoint.com/personal/jacob_norkus_dynatrace_com/Documents/Microsoft%20Copilot%20Chat%20Files/awsmonv3.sh)
+  # `value` corresponds to the inner "value" object your script posts (see awsmonv3.sh)
   value = jsonencode({
     enabled      = false
     description  = var.config_name
