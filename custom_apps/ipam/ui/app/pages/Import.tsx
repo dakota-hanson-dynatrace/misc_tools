@@ -219,6 +219,7 @@ export const Import = () => {
 
       const headers = Object.keys(rows[0]);
       setImported(false);
+      setImportError('');
 
       if (isSolarWindsFormat(headers)) {
         setImportMode('solarwinds');

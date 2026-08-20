@@ -147,7 +147,10 @@ export function useDocumentStorage() {
       const reportedBy = user.email || user.name || user.id;
       const res = await functions.call('ipamMutate', { data: { mutation: payload, reportedBy } });
       const response = (await res.json()) as IpamMutationResponse;
-      if (!response.ok) throw new Error(response.message);
+      if (!response.ok) {
+        if (response.permissionDenied) setPermissionDenied(true);
+        throw new Error(response.message);
+      }
       const result = response.result;
       versionRef.current = result.version;
       setSubnets(result.subnets);

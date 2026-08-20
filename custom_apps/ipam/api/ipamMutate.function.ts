@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { documentsClient } from '@dynatrace-sdk/client-document';
+import { documentsClient, isConflict, isForbidden, isUnauthorized } from '@dynatrace-sdk/client-document';
 import { getCurrentUserDetails } from '@dynatrace-sdk/app-environment';
 import { isValidCidr, normalizeNetworkAddress, isValidIpv4, findOverlappingSubnet, SubnetOverlapIndex } from '../ui/app/utils/ipUtils';
 import type {
@@ -76,7 +76,7 @@ function applyMutation(data: IpamData, mutation: IpamMutation, actor: string): M
       const subnet = data.subnets.find((s) => s.id === mutation.id);
       if (!subnet) throw new ValidationError('Subnet not found.');
       const updates = { ...mutation.updates };
-      if (updates.cidr) {
+      if (updates.cidr !== undefined) {
         if (!isValidCidr(updates.cidr)) throw new ValidationError(`Invalid CIDR: ${updates.cidr}`);
         updates.cidr = normalizeNetworkAddress(updates.cidr);
         const clash = findOverlappingSubnet(updates.cidr, data.subnets, subnet.id);
@@ -120,7 +120,7 @@ function applyMutation(data: IpamData, mutation: IpamMutation, actor: string): M
       const record = data.ipRecords.find((r) => r.id === mutation.id);
       if (!record) throw new ValidationError('IP record not found.');
       const updates = { ...mutation.updates };
-      if (updates.address && updates.address !== record.address) {
+      if (updates.address !== undefined && updates.address !== record.address) {
         if (!isValidIpv4(updates.address)) throw new ValidationError(`Invalid IPv4 address: ${updates.address}`);
         const dupe = data.ipRecords.find(
           (r) => r.id !== record.id && r.subnetId === record.subnetId && r.address === updates.address
@@ -183,6 +183,10 @@ function applyMutation(data: IpamData, mutation: IpamMutation, actor: string): M
       }
       return { added, skipped, subnetsAdded };
     }
+    default: {
+      const unknownType = (mutation as { type?: unknown })?.type;
+      throw new ValidationError(`Unknown mutation type: ${String(unknownType)}`);
+    }
   }
 }
 
@@ -198,7 +202,7 @@ export default async function (request: IpamMutationRequest): Promise<IpamMutati
     const actor = user.id !== MISSING_USER_SENTINEL ? (user.email || user.name || user.id) : String(request.reportedBy ?? '').slice(0, 200) || 'unknown';
     const payload = request.mutation;
 
-    for (let attempt = 0; attempt < 3; attempt++) {
+    for (let attempt = 0; ; attempt++) {
       const res = await documentsClient.getDocument({ id: DOC_ID, adminAccess: true });
       const version = res.metadata?.version ?? '';
       const text = res.content ? await res.content.get('text') : '{"subnets":[],"ipRecords":[]}';
@@ -220,13 +224,12 @@ export default async function (request: IpamMutationRequest): Promise<IpamMutati
           result: { subnets: data.subnets, ipRecords: data.ipRecords, version: meta.version, added, skipped, subnetsAdded },
         };
       } catch (e) {
-        const status = (e as { status?: number })?.status;
-        if (status === 409 && attempt < 2) continue; // someone else saved first, reload and retry
+        if (isConflict(e) && attempt < 2) continue; // someone else saved first, reload and retry
         throw e;
       }
     }
-    throw new Error('Could not save - please try again.');
   } catch (e) {
-    return { ok: false, message: e instanceof Error ? e.message : String(e) };
+    console.error('ipamMutate failed:', e);
+    return { ok: false, message: e instanceof Error ? e.message : String(e), permissionDenied: isForbidden(e) || isUnauthorized(e) };
   }
 }

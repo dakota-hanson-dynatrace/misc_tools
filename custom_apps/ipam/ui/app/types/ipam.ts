@@ -67,4 +67,4 @@ export interface IpamMutationResult {
 // (and unexpected) failure is caught internally and reported here instead.
 export type IpamMutationResponse =
   | { ok: true; result: IpamMutationResult }
-  | { ok: false; message: string };
+  | { ok: false; message: string; permissionDenied?: boolean };
