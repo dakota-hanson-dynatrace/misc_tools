@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { cidrsOverlap, findOverlappingSubnet, isValidIpv4, SubnetOverlapIndex } from './ipUtils';
+import { cidrsOverlap, findOverlappingSubnet, isValidIpv4, SubnetOverlapIndex, parseCsvRows } from './ipUtils';
 
 // No test runner is installed in this project - run with esbuild + node:
 //   npx esbuild ui/app/utils/ipUtils.selfcheck.ts --bundle --platform=node --format=cjs --outfile=/tmp/check.js && node /tmp/check.js
@@ -30,5 +30,14 @@ assert.equal(index.findClash('10.0.0.0/24', 'a'), undefined, 'index must respect
 assert.equal(index.findClash('172.16.0.0/24'), undefined, 'index must not false-positive on a disjoint range');
 index.add({ id: 'c', cidr: '172.16.0.0/24' });
 assert.equal(index.findClash('172.16.0.0/25')?.id, 'c', 'index must see subnets added after construction');
+
+const csvRows = parseCsvRows(
+  'name,notes\n' +
+  '"Corp LAN","Building A, 3rd floor"\n' +
+  '"HQ","Line one\nLine two"\n'
+);
+assert.equal(csvRows.length, 2, 'a quoted embedded newline must not split into an extra row');
+assert.equal(csvRows[0].notes, 'Building A, 3rd floor', 'a comma inside quotes must not split the field');
+assert.equal(csvRows[1].notes, 'Line one\nLine two', 'a newline inside quotes must stay in one field');
 
 console.log('ipUtils.selfcheck: all assertions passed');

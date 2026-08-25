@@ -30,13 +30,17 @@ export const Subnets = () => {
   const [saving, setSaving] = useState(false);
 
   const rows: SubnetRow[] = useMemo(() => {
+    const assignedCountBySubnet = new Map<string, number>();
+    for (const r of ipRecords) {
+      if (r.status !== 'assigned') continue;
+      assignedCountBySubnet.set(r.subnetId, (assignedCountBySubnet.get(r.subnetId) ?? 0) + 1);
+    }
     return subnets.map((s) => {
       let usableHosts = 0;
       try {
         usableHosts = getSubnetInfo(s.cidr).usableHosts;
       } catch { /* ignore */ }
-      const recs = ipRecords.filter((r) => r.subnetId === s.id);
-      const assigned = recs.filter((r) => r.status === 'assigned').length;
+      const assigned = assignedCountBySubnet.get(s.id) ?? 0;
       const utilization = usableHosts > 0 ? Math.round((assigned / usableHosts) * 100) : 0;
       return { ...s, usableHosts, assigned, utilization };
     });

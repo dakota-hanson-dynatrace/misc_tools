@@ -35,6 +35,11 @@ export const Home = () => {
   }, [subnets, ipRecords]);
 
   const topSubnets = useMemo(() => {
+    const assignedCountBySubnet = new Map<string, number>();
+    for (const r of ipRecords) {
+      if (r.status !== 'assigned') continue;
+      assignedCountBySubnet.set(r.subnetId, (assignedCountBySubnet.get(r.subnetId) ?? 0) + 1);
+    }
     return subnets
       .map((s) => {
         let usable = 0;
@@ -43,8 +48,7 @@ export const Home = () => {
         } catch {
           // ignore
         }
-        const subnetRecords = ipRecords.filter((r) => r.subnetId === s.id);
-        const assigned = subnetRecords.filter((r) => r.status === 'assigned').length;
+        const assigned = assignedCountBySubnet.get(s.id) ?? 0;
         const utilization = usable > 0 ? Math.round((assigned / usable) * 100) : 0;
         return { ...s, usable, assigned, utilization };
       })
@@ -107,11 +111,19 @@ export const Home = () => {
             {topSubnets.map((s, i) => (
               <div
                 key={s.id}
+                role="button"
+                tabIndex={0}
                 style={{
                   borderTop: i > 0 ? `1px solid ${Colors.Border.Neutral.Default}` : undefined,
                   cursor: 'pointer',
                 }}
                 onClick={() => void navigate(`/subnets/${s.id}`)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    void navigate(`/subnets/${s.id}`);
+                  }
+                }}
               >
                 <Flex alignItems="center" padding={16} gap={16}>
                   <Flex flexDirection="column" style={{ minWidth: 200 }}>

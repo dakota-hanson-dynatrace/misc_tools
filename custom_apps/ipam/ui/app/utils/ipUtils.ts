@@ -122,32 +122,41 @@ export function isIpInCidr(ip: string, cidr: string): boolean {
   }
 }
 
-function parseRfc4180Row(line: string): string[] {
-  const values: string[] = [];
+// Tokenizes the whole input as one RFC 4180 stream rather than splitting into
+// lines first, so a quoted field containing an embedded newline (a common
+// real-world CSV construct, e.g. a multi-line "Notes" column) doesn't get
+// corrupted by being split into two rows before quote state is known.
+function tokenizeCsv(text: string): string[][] {
+  const rows: string[][] = [];
+  let row: string[] = [];
   let current = '';
   let inQuotes = false;
-  for (let i = 0; i < line.length; i++) {
-    const ch = line[i];
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
     if (inQuotes) {
-      if (ch === '"' && line[i + 1] === '"') { current += '"'; i++; }
+      if (ch === '"' && text[i + 1] === '"') { current += '"'; i++; }
       else if (ch === '"') { inQuotes = false; }
       else { current += ch; }
-    } else {
-      if (ch === '"') { inQuotes = true; }
-      else if (ch === ',') { values.push(current.trim()); current = ''; }
-      else { current += ch; }
+      continue;
     }
+    if (ch === '"') { inQuotes = true; }
+    else if (ch === ',') { row.push(current.trim()); current = ''; }
+    else if (ch === '\r') { /* skip, \n (bare or in \r\n) ends the row */ }
+    else if (ch === '\n') { row.push(current.trim()); rows.push(row); row = []; current = ''; }
+    else { current += ch; }
   }
-  values.push(current.trim());
-  return values;
+  if (current.length > 0 || row.length > 0) {
+    row.push(current.trim());
+    rows.push(row);
+  }
+  return rows;
 }
 
 export function parseCsvRows(text: string): Record<string, string>[] {
-  const lines = text.trim().split(/\r?\n/);
-  if (lines.length < 2) return [];
-  const headers = parseRfc4180Row(lines[0]);
-  return lines.slice(1).map((line) => {
-    const values = parseRfc4180Row(line);
+  const rows = tokenizeCsv(text.trim());
+  if (rows.length < 2) return [];
+  const headers = rows[0];
+  return rows.slice(1).map((values) => {
     const row: Record<string, string> = {};
     headers.forEach((h, i) => { row[h] = values[i] ?? ''; });
     return row;

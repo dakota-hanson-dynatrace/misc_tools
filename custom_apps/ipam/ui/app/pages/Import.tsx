@@ -130,10 +130,11 @@ export const Import = () => {
   // ── File parsing ───────────────────────────────────────────────────────────
 
   function rebuildSwRows(rows: Record<string, string>[], cmap: ColumnMap, existingSubnets: Subnet[]) {
+    const cidrBySubnetId = new Map(existingSubnets.map((s) => [s.id, s.cidr]));
     const existingRecordKeys = new Set(
       ipRecords.map((r) => {
-        const sub = existingSubnets.find((s) => s.id === r.subnetId);
-        return sub ? `${sub.cidr}|${r.address}` : '';
+        const cidr = cidrBySubnetId.get(r.subnetId);
+        return cidr ? `${cidr}|${r.address}` : '';
       })
     );
 
