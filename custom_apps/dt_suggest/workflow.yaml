@@ -1,0 +1,45 @@
+title: "dt suggest - chronic failure scan"
+description: >-
+  Runs the dt suggest analyze function every 6 hours: clusters root-cause trace
+  exceptions, has Dynatrace Intelligence merge them into ranked issues with
+  suggested fixes, and persists the findings for the app to render. See README.md
+  for the app deployment this depends on.
+isPrivate: false
+isDeployed: true
+schemaVersion: 4
+type: STANDARD
+hourlyExecutionLimit: 1000
+triggerType: Schedule
+trigger:
+  schedule:
+    trigger:
+      type: cron
+      cron: "0 */6 * * *"
+    timezone: "UTC"
+    isActive: true
+    isFaulty: false
+    nextExecution: null
+    filterParameters: {}
+    inputs: {}
+tasks:
+  analyze:
+    name: analyze
+    description: "Call the dt suggest analyze app function"
+    action: dynatrace.automations:run-javascript
+    input:
+      script: |
+        // The function runs under this workflow's actor, narrowed by the app's declared
+        // scopes. If the scheduled run returns zero clusters while the same function
+        // works from the app UI, the actor is missing spans read or copilot execute.
+        export default async function () {
+          const response = await fetch('/apps/my.dt.suggest/api/analyze');
+          if (!response.ok) {
+            throw new Error(`analyze failed: ${response.status} ${await response.text()}`);
+          }
+          const summary = await response.json();
+          console.log('dt suggest:', JSON.stringify(summary));
+          // The function returns its failures as { ok: false } with HTTP 200, so a
+          // scheduled run must check the payload or it reports success having written nothing.
+          if (!summary?.ok) throw new Error(`analyze returned an error: ${summary?.error}`);
+          return summary;
+        }

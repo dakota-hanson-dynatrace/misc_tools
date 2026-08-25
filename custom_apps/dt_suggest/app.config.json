@@ -1,0 +1,19 @@
+{
+  "$schema": "./.dt-app/app.config.schema.json",
+  "environmentUrl": "https://<YOUR-TENANT-ID>.apps.dynatrace.com/",
+  "app": {
+    "name": "dt suggest",
+    "version": "0.2.1",
+    "description": "Chronic trace failure patterns Davis never alerts on, with suggested fixes",
+    "id": "my.dt.suggest",
+    "scopes": [
+      { "name": "storage:spans:read", "comment": "Query failed spans for root-cause exceptions" },
+      { "name": "storage:buckets:read", "comment": "Resolve Grail span buckets - without this, span queries silently return zero records" },
+      { "name": "storage:entities:read", "comment": "Service name fallback when dt.service.name is absent" },
+      { "name": "davis-copilot:conversations:execute", "comment": "Merge clusters into issues and propose fixes" },
+      { "name": "state:app-states:read", "comment": "Read persisted findings" },
+      { "name": "state:app-states:write", "comment": "Persist findings and dismissals" },
+      { "name": "app-engine:functions:run", "comment": "Run the analyze function from the UI" }
+    ]
+  }
+}
