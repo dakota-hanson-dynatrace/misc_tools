@@ -40,4 +40,8 @@ assert.equal(csvRows.length, 2, 'a quoted embedded newline must not split into a
 assert.equal(csvRows[0].notes, 'Building A, 3rd floor', 'a comma inside quotes must not split the field');
 assert.equal(csvRows[1].notes, 'Line one\nLine two', 'a newline inside quotes must stay in one field');
 
+const spacing = parseCsvRows('a,b\n"  x  ",  y  \n');
+assert.equal(spacing[0].a, '  x  ', 'whitespace inside a quoted field is significant per RFC 4180 and must be preserved');
+assert.equal(spacing[0].b, 'y', 'an unquoted field must still be trimmed');
+
 console.log('ipUtils.selfcheck: all assertions passed');

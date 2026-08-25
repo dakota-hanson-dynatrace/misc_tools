@@ -49,6 +49,7 @@ class ValidationError extends Error {}
 // fall back to scanning `data` directly, which is fine for one item.
 
 function addOneSubnet(data: IpamData, subnet: NewSubnet, actor: string, index?: SubnetOverlapIndex<Subnet>): Subnet {
+  if (!subnet.name?.trim()) throw new ValidationError('Subnet name is required.');
   if (!isValidCidr(subnet.cidr)) throw new ValidationError(`Invalid CIDR: ${subnet.cidr}`);
   const cidr = normalizeNetworkAddress(subnet.cidr);
   const clash = index ? index.findClash(cidr) : findOverlappingSubnet(cidr, data.subnets);
@@ -84,6 +85,9 @@ function applyMutation(data: IpamData, mutation: IpamMutation, actor: string): M
       const subnet = data.subnets.find((s) => s.id === mutation.id);
       if (!subnet) throw new ValidationError('Subnet not found.');
       const updates = { ...mutation.updates };
+      if (updates.name !== undefined && !updates.name.trim()) {
+        throw new ValidationError('Subnet name is required.');
+      }
       if (updates.cidr !== undefined) {
         if (!isValidCidr(updates.cidr)) throw new ValidationError(`Invalid CIDR: ${updates.cidr}`);
         updates.cidr = normalizeNetworkAddress(updates.cidr);
@@ -207,7 +211,9 @@ const MISSING_USER_SENTINEL = 'dt.missing.user.id';
 export default async function (request: IpamMutationRequest): Promise<IpamMutationResponse> {
   try {
     const user = getCurrentUserDetails();
-    const actor = user.id !== MISSING_USER_SENTINEL ? (user.email || user.name || user.id) : String(request.reportedBy ?? '').slice(0, 200) || 'unknown';
+    const actor = user.id !== MISSING_USER_SENTINEL
+      ? (user.email || user.name || user.id || 'unknown')
+      : String(request.reportedBy ?? '').slice(0, 200) || 'unknown';
     const payload = request.mutation;
 
     for (let attempt = 0; ; attempt++) {

@@ -26,6 +26,7 @@ export const Subnets = () => {
   const [showModal, setShowModal] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
   const [form, setForm] = useState(emptyForm);
+  const [nameError, setNameError] = useState('');
   const [cidrError, setCidrError] = useState('');
   const [saving, setSaving] = useState(false);
 
@@ -55,7 +56,7 @@ export const Subnets = () => {
       { id: 'owner', header: 'Owner', accessor: (row) => row.owner ?? '—' },
       {
         id: 'usableHosts',
-        header: 'Total IPs',
+        header: 'Usable IPs',
         accessor: (row) => row.usableHosts.toLocaleString(),
       },
       { id: 'assigned', header: 'Assigned', accessor: (row) => row.assigned.toString() },
@@ -99,6 +100,7 @@ export const Subnets = () => {
   function openAdd() {
     setEditId(null);
     setForm(emptyForm);
+    setNameError('');
     setCidrError('');
     setShowModal(true);
   }
@@ -113,11 +115,18 @@ export const Subnets = () => {
       vlan: row.vlan ?? '',
       owner: row.owner ?? '',
     });
+    setNameError('');
     setCidrError('');
     setShowModal(true);
   }
 
   async function handleSave() {
+    setNameError('');
+    setCidrError('');
+    if (!form.name.trim()) {
+      setNameError('Name is required.');
+      return;
+    }
     if (!isValidCidr(form.cidr)) {
       setCidrError('Invalid CIDR notation (e.g. 192.168.1.0/24)');
       return;
@@ -197,6 +206,11 @@ export const Subnets = () => {
           <FormField>
             <Label>Name *</Label>
             <TextInput value={form.name} onChange={field('name')} placeholder="e.g. Corp LAN" />
+            {nameError && (
+              <Text style={{ color: 'var(--dt-color-text-critical)', fontSize: 12 }}>
+                {nameError}
+              </Text>
+            )}
           </FormField>
           <FormField>
             <Label>CIDR *</Label>

@@ -131,6 +131,13 @@ function tokenizeCsv(text: string): string[][] {
   let row: string[] = [];
   let current = '';
   let inQuotes = false;
+  let quoted = false; // whether the current field opened with a quote - RFC 4180 says
+                       // whitespace inside a quoted field is significant and must not be trimmed
+  const pushField = () => {
+    row.push(quoted ? current : current.trim());
+    current = '';
+    quoted = false;
+  };
   for (let i = 0; i < text.length; i++) {
     const ch = text[i];
     if (inQuotes) {
@@ -139,14 +146,14 @@ function tokenizeCsv(text: string): string[][] {
       else { current += ch; }
       continue;
     }
-    if (ch === '"') { inQuotes = true; }
-    else if (ch === ',') { row.push(current.trim()); current = ''; }
+    if (ch === '"' && current === '') { inQuotes = true; quoted = true; }
+    else if (ch === ',') { pushField(); }
     else if (ch === '\r') { /* skip, \n (bare or in \r\n) ends the row */ }
-    else if (ch === '\n') { row.push(current.trim()); rows.push(row); row = []; current = ''; }
+    else if (ch === '\n') { pushField(); rows.push(row); row = []; }
     else { current += ch; }
   }
   if (current.length > 0 || row.length > 0) {
-    row.push(current.trim());
+    pushField();
     rows.push(row);
   }
   return rows;

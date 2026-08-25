@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { documentsClient } from '@dynatrace-sdk/client-document';
+import { documentsClient, isForbidden, isUnauthorized, isDocumentOrSnapshotNotFound } from '@dynatrace-sdk/client-document';
 import { functions } from '@dynatrace-sdk/app-utils';
 import { getCurrentUserDetails } from '@dynatrace-sdk/app-environment';
 import type { Subnet, IpRecord, IpamMutation, IpamMutationResult, IpamMutationResponse, NewSubnet, NewIpRecord } from '../types/ipam';
@@ -107,10 +107,11 @@ export function useDocumentStorage() {
       setLastSyncedAt(new Date());
       startPolling();
     } catch (e: unknown) {
-      const status = (e as { status?: number })?.status;
-      if (status === 403 || status === 401) {
+      // documentsClient errors carry their status at e.response.status, not e.status -
+      // use the SDK's own type guards rather than guessing the error shape.
+      if (isForbidden(e) || isUnauthorized(e)) {
         setPermissionDenied(true);
-      } else if (status === 404) {
+      } else if (isDocumentOrSnapshotNotFound(e)) {
         setNeedsSetup(true);
       }
     } finally {
