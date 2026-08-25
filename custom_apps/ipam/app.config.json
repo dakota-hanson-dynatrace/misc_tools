@@ -3,7 +3,7 @@
   "environmentUrl": "https://<YOUR-TENANT-ID>.apps.dynatrace.com/",
   "app": {
     "name": "IPAM",
-    "version": "0.2.1",
+    "version": "0.2.2",
     "description": "A starting project with routing, fetching data, and charting",
     "id": "my.ipam",
     "scopes": [

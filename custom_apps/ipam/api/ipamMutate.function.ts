@@ -1,5 +1,12 @@
 import { randomUUID } from 'node:crypto';
-import { documentsClient, isConflict, isForbidden, isUnauthorized } from '@dynatrace-sdk/client-document';
+import {
+  documentsClient,
+  isConflict,
+  isForbidden,
+  isUnauthorized,
+  isDocumentOrSnapshotNotFound,
+  isExternalIdAlreadyExists,
+} from '@dynatrace-sdk/client-document';
 import { getCurrentUserDetails } from '@dynatrace-sdk/app-environment';
 import { isValidCidr, normalizeNetworkAddress, isValidIpv4, findOverlappingSubnet, SubnetOverlapIndex } from '../ui/app/utils/ipUtils';
 import type {
@@ -26,6 +33,7 @@ import type {
 // not here, because the UI's tsconfig rootDir can't import anything outside ui/.
 
 const DOC_ID = 'my-ipam-data-v1';
+const DOC_TYPE = 'my-ipam-data';
 
 interface IpamData {
   subnets: Subnet[];
@@ -203,10 +211,35 @@ export default async function (request: IpamMutationRequest): Promise<IpamMutati
     const payload = request.mutation;
 
     for (let attempt = 0; ; attempt++) {
-      const res = await documentsClient.getDocument({ id: DOC_ID, adminAccess: true });
-      const version = res.metadata?.version ?? '';
-      const text = res.content ? await res.content.get('text') : '{"subnets":[],"ipRecords":[]}';
-      const data = JSON.parse(text) as IpamData;
+      let version: string;
+      let data: IpamData;
+      try {
+        const res = await documentsClient.getDocument({ id: DOC_ID, adminAccess: true });
+        version = res.metadata?.version ?? '';
+        const text = res.content ? await res.content.get('text') : '{"subnets":[],"ipRecords":[]}';
+        data = JSON.parse(text) as IpamData;
+      } catch (e) {
+        // Self-heals a document that was never created (or hasn't propagated
+        // yet after initializeDatabase() created it from a different, browser-
+        // side execution context) instead of assuming the document always exists.
+        if (!isDocumentOrSnapshotNotFound(e)) throw e;
+        try {
+          const emptyData: IpamData = { subnets: [], ipRecords: [] };
+          const meta = await documentsClient.createDocument({
+            body: {
+              id: DOC_ID,
+              name: 'IPAM Data',
+              type: DOC_TYPE,
+              content: new Blob([JSON.stringify(emptyData)], { type: 'application/json' }),
+            },
+          });
+          version = meta.version;
+          data = emptyData;
+        } catch (createError) {
+          if (isExternalIdAlreadyExists(createError) && attempt < 2) continue; // someone else created it first, reload
+          throw createError;
+        }
+      }
       data.subnets ??= [];
       data.ipRecords ??= [];
 
