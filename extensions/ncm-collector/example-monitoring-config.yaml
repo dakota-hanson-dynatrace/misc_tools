@@ -1,0 +1,67 @@
+# Example monitoring configuration for custom:ncm-collector.
+#
+# This is the device inventory: the collector only ever touches devices
+# listed here. Copy this file, fill in your own devices and credential vault
+# ID, then apply it with:
+#
+#   dtctl apply -f my-monitoring-config.yaml --context <your-context>
+#
+# Scope must be an ActiveGate group whose trust store already has your
+# signing CA installed (see the main README's "Trust bootstrap" step) -
+# group membership should be read from the ActiveGate itself, not inferred
+# from which configs happen to exist already.
+scope: ag_group-default
+value:
+  enabled: true
+  description: NCM collector - network device config backup
+  version: "0.0.1"
+  activationContext: REMOTE
+  pythonRemote:
+    global_credentials:
+      scheme: password
+      # Vault-backed is the default and the only supported path for a real
+      # deployment - the app and browser never see a device credential this
+      # way. Create the entry under Settings > Credential vault first
+      # (type Username/Password, scope Extension authentication), then paste
+      # its id below.
+      useCredentialVault: true
+      credentialVaultId: "<your Credential Vault entry id>"
+      # Only needed for classic Cisco IOS devices that split login from
+      # privileged mode. Leave false and use a privilege-15 service account
+      # instead wherever possible - see the README's "Cisco enable mode" note.
+      enable_required: false
+    devices:
+      - enabled: true
+        hostname: 10.0.0.1
+        port: 22
+        alias: example-core-switch
+        vendor: cisco_ios
+        site: hq
+        use_global_credentials: true
+        host_key:
+          # trust_on_first_use records the fingerprint on first successful
+          # connection; approve it in the app's Manage tab, after which a
+          # mismatch is rejected rather than silently trusted. Use `pinned`
+          # with an explicit `fingerprint:` if you already have it (e.g. from
+          # `ssh-keyscan -t rsa,ecdsa,ed25519 <host> | ssh-keygen -lf -`).
+          policy: trust_on_first_use
+      - enabled: true
+        hostname: 10.0.0.2
+        port: 22
+        alias: example-edge-firewall
+        vendor: fortios
+        site: hq
+        use_global_credentials: true
+        host_key:
+          policy: trust_on_first_use
+    global_advanced:
+      # How many devices' worth of work one bucket_size unit represents when
+      # this configuration's devices are split across the ActiveGate group.
+      bucket_size: 25
+    advanced:
+      connect_timeout_seconds: 20
+      command_timeout_seconds: 120
+      max_concurrent_devices: 5
+      capture_startup_config: false
+      log_command_output: false
+    log_level: INFO

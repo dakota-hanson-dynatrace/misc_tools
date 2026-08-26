@@ -1,0 +1,580 @@
+{
+  "types": {
+    "credentials": {
+      "type": "object",
+      "displayName": "Credentials",
+      "properties": {
+        "scheme": {
+          "displayName": "Authentication",
+          "type": {
+            "$ref": "#/enums/auth_scheme"
+          },
+          "nullable": false,
+          "default": "password",
+          "maxItems": 1
+        },
+        "useCredentialVault": {
+          "displayName": "Use credential vault",
+          "description": "Strongly recommended. The app and the browser never see a vault-held credential.",
+          "type": "boolean",
+          "nullable": false,
+          "default": true,
+          "maxObjects": 1,
+          "precondition": {
+            "type": "EQUALS",
+            "property": "scheme",
+            "expectedValue": "password"
+          }
+        },
+        "credentialVaultId": {
+          "displayName": "Select vault credentials",
+          "description": "Type 'User and password', scope 'Extension authentication'. Set ownerAccessOnly=false or platform-side processes cannot read it.",
+          "nullable": true,
+          "type": "text",
+          "subType": "credential",
+          "referencedType": "USERNAME_PASSWORD",
+          "maxObjects": 1,
+          "precondition": {
+            "type": "AND",
+            "preconditions": [
+              {
+                "type": "EQUALS",
+                "property": "scheme",
+                "expectedValue": "password"
+              },
+              {
+                "type": "EQUALS",
+                "property": "useCredentialVault",
+                "expectedValue": true
+              }
+            ]
+          }
+        },
+        "username": {
+          "displayName": "Username",
+          "type": "text",
+          "nullable": false,
+          "default": "",
+          "constraints": [
+            {
+              "type": "LENGTH",
+              "minLength": 1,
+              "maxLength": 500
+            }
+          ],
+          "maxItems": 1,
+          "precondition": {
+            "type": "AND",
+            "preconditions": [
+              {
+                "type": "IN",
+                "property": "scheme",
+                "expectedValues": [
+                  "password",
+                  "ssh_key"
+                ]
+              },
+              {
+                "type": "NOT",
+                "precondition": {
+                  "type": "AND",
+                  "preconditions": [
+                    {
+                      "type": "EQUALS",
+                      "property": "scheme",
+                      "expectedValue": "password"
+                    },
+                    {
+                      "type": "EQUALS",
+                      "property": "useCredentialVault",
+                      "expectedValue": true
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        },
+        "password": {
+          "displayName": "Password",
+          "type": "secret",
+          "nullable": false,
+          "default": "",
+          "constraints": [
+            {
+              "type": "LENGTH",
+              "minLength": 1,
+              "maxLength": 5000
+            }
+          ],
+          "maxItems": 1,
+          "precondition": {
+            "type": "AND",
+            "preconditions": [
+              {
+                "type": "EQUALS",
+                "property": "scheme",
+                "expectedValue": "password"
+              },
+              {
+                "type": "EQUALS",
+                "property": "useCredentialVault",
+                "expectedValue": false
+              }
+            ]
+          }
+        },
+        "ssh_key_contents": {
+          "displayName": "Private key contents",
+          "description": "PEM-encoded. Preferred over a key path: a path must exist identically on every ActiveGate in the group.",
+          "type": "secret",
+          "nullable": false,
+          "default": "",
+          "constraints": [
+            {
+              "type": "LENGTH",
+              "minLength": 1,
+              "maxLength": 20000
+            }
+          ],
+          "maxItems": 1,
+          "precondition": {
+            "type": "EQUALS",
+            "property": "scheme",
+            "expectedValue": "ssh_key"
+          }
+        },
+        "key_passphrase": {
+          "displayName": "Key passphrase",
+          "type": "secret",
+          "nullable": true,
+          "constraints": [
+            {
+              "type": "LENGTH",
+              "minLength": 0,
+              "maxLength": 5000
+            }
+          ],
+          "maxItems": 1,
+          "precondition": {
+            "type": "EQUALS",
+            "property": "scheme",
+            "expectedValue": "ssh_key"
+          }
+        },
+        "enable_required": {
+          "displayName": "Device requires enable",
+          "description": "Cisco IOS/NX-OS only, and only for accounts that are not privilege 15. Prefer a privilege-15 service account - that is what Ansible, NAPALM, Oxidized and RANCID all assume, and it needs no second secret. Ignored by every other vendor, which has no equivalent concept.",
+          "type": "boolean",
+          "nullable": false,
+          "default": false,
+          "maxObjects": 1
+        },
+        "enableSecretVaultId": {
+          "displayName": "Enable secret (vault)",
+          "description": "Type 'Token', scope 'Extension authentication'.",
+          "nullable": true,
+          "type": "text",
+          "subType": "credential",
+          "referencedType": "TOKEN",
+          "maxObjects": 1,
+          "precondition": {
+            "type": "EQUALS",
+            "property": "enable_required",
+            "expectedValue": true
+          }
+        }
+      }
+    },
+    "host_key": {
+      "type": "object",
+      "displayName": "SSH host key",
+      "properties": {
+        "policy": {
+          "displayName": "Host key policy",
+          "description": "This channel carries privileged credentials and full running-configs. 'Pinned' is the only option that detects a man-in-the-middle.",
+          "type": {
+            "$ref": "#/enums/host_key_policy"
+          },
+          "nullable": false,
+          "default": "trust_on_first_use",
+          "maxItems": 1
+        },
+        "fingerprint": {
+          "displayName": "Expected fingerprint",
+          "description": "SHA256:... form, as printed by `ssh-keyscan -t rsa,ecdsa,ed25519 <host> | ssh-keygen -lf -`. Leave blank under trust-on-first-use and approve the observed value in the app.",
+          "type": "text",
+          "nullable": true,
+          "constraints": [
+            {
+              "type": "LENGTH",
+              "minLength": 0,
+              "maxLength": 200
+            }
+          ],
+          "maxItems": 1,
+          "precondition": {
+            "type": "IN",
+            "property": "policy",
+            "expectedValues": [
+              "pinned",
+              "trust_on_first_use"
+            ]
+          }
+        }
+      }
+    },
+    "advanced": {
+      "type": "object",
+      "displayName": "Advanced",
+      "properties": {
+        "connect_timeout_seconds": {
+          "displayName": "Connect timeout (s)",
+          "type": "integer",
+          "nullable": false,
+          "default": 20,
+          "constraints": [
+            {
+              "type": "RANGE",
+              "minimum": 5,
+              "maximum": 300
+            }
+          ],
+          "maxItems": 1
+        },
+        "command_timeout_seconds": {
+          "displayName": "Command timeout (s)",
+          "description": "A full running-config on a busy chassis over a slow WAN link can take a while. There is no documented per-callback time limit on the EF2 Python datasource.",
+          "type": "integer",
+          "nullable": false,
+          "default": 120,
+          "constraints": [
+            {
+              "type": "RANGE",
+              "minimum": 10,
+              "maximum": 900
+            }
+          ],
+          "maxItems": 1
+        },
+        "max_concurrent_devices": {
+          "displayName": "Max concurrent devices",
+          "description": "First-party Remote Unix Monitoring caps SSH channels at 5. The SDK's callback pool is 100 workers, but CPU and RAM limits bite long before that.",
+          "type": "integer",
+          "nullable": false,
+          "default": 5,
+          "constraints": [
+            {
+              "type": "RANGE",
+              "minimum": 1,
+              "maximum": 25
+            }
+          ],
+          "maxItems": 1
+        },
+        "disabled_algorithms": {
+          "displayName": "Disabled SSH algorithms",
+          "description": "Comma-separated, e.g. 'rsa-sha2-512,rsa-sha2-256'. Legacy gear often needs an algorithm escape hatch - first-party Remote Unix ships a disable_rsa2 toggle for exactly this.",
+          "type": "text",
+          "nullable": true,
+          "constraints": [
+            {
+              "type": "LENGTH",
+              "minLength": 0,
+              "maxLength": 500
+            }
+          ],
+          "maxItems": 1
+        },
+        "capture_startup_config": {
+          "displayName": "Also capture startup config",
+          "description": "Enables the unsaved-changes report: running-config differing from startup-config means a change survives only until reboot. A top-three SolarWinds NCM report, and it needs no write access.",
+          "type": "boolean",
+          "nullable": false,
+          "default": true,
+          "maxObjects": 1
+        },
+        "log_command_output": {
+          "displayName": "Log raw command output",
+          "description": "Debugging only. Writes device output to the datasource log, which may contain secrets.",
+          "type": "boolean",
+          "nullable": false,
+          "default": false,
+          "maxObjects": 1
+        }
+      }
+    },
+    "dynatrace.datasource.python:ncm_collector-device": {
+      "type": "object",
+      "displayName": "Network device",
+      "summaryPattern": "{alias} ({hostname}) - {vendor}",
+      "properties": {
+        "enabled": {
+          "displayName": "Enabled",
+          "type": "boolean",
+          "nullable": false,
+          "default": true,
+          "maxObjects": 1
+        },
+        "hostname": {
+          "displayName": "Hostname or IP",
+          "description": "The address the collector connects to. Recorded on every record as ncm.device.address and used to match this device against its SNMP-monitored entity.",
+          "type": "text",
+          "nullable": false,
+          "default": "",
+          "constraints": [
+            {
+              "type": "LENGTH",
+              "minLength": 1,
+              "maxLength": 255
+            }
+          ],
+          "maxItems": 1
+        },
+        "port": {
+          "displayName": "SSH port",
+          "type": "integer",
+          "nullable": false,
+          "default": 22,
+          "constraints": [
+            {
+              "type": "RANGE",
+              "minimum": 1,
+              "maximum": 65535
+            }
+          ],
+          "maxItems": 1
+        },
+        "alias": {
+          "displayName": "Device name",
+          "description": "How the device appears in the app. Matching against SNMP-monitored devices falls back to this name when no polled address is available, so aligning it with sysName is worth doing.",
+          "type": "text",
+          "nullable": false,
+          "default": "",
+          "constraints": [
+            {
+              "type": "LENGTH",
+              "minLength": 1,
+              "maxLength": 255
+            }
+          ],
+          "maxItems": 1
+        },
+        "vendor": {
+          "displayName": "Vendor / OS",
+          "description": "Selects the capture adapter: which command to run and how to strip the prompt and pager.",
+          "type": {
+            "$ref": "#/enums/vendor"
+          },
+          "nullable": false,
+          "default": "cisco_ios",
+          "maxItems": 1
+        },
+        "site": {
+          "displayName": "Site",
+          "description": "Free text, used for grouping in the app.",
+          "type": "text",
+          "nullable": true,
+          "constraints": [
+            {
+              "type": "LENGTH",
+              "minLength": 0,
+              "maxLength": 255
+            }
+          ],
+          "maxItems": 1
+        },
+        "use_global_credentials": {
+          "displayName": "Use the configuration's shared credentials",
+          "type": "boolean",
+          "nullable": false,
+          "default": true,
+          "maxObjects": 1
+        },
+        "credentials": {
+          "displayName": "Credentials",
+          "type": {
+            "$ref": "#/types/credentials"
+          },
+          "precondition": {
+            "type": "EQUALS",
+            "property": "use_global_credentials",
+            "expectedValue": false
+          }
+        },
+        "host_key": {
+          "displayName": "SSH host key",
+          "type": {
+            "$ref": "#/types/host_key"
+          }
+        }
+      }
+    },
+    "global_advanced": {
+      "type": "object",
+      "displayName": "Task distribution",
+      "properties": {
+        "bucket_size": {
+          "displayName": "Devices per task",
+          "description": "Devices are grouped into tasks of this size, and tasks are distributed across the available ActiveGates in the group. Smaller buckets spread load wider.",
+          "type": "integer",
+          "nullable": true,
+          "constraints": [
+            {
+              "type": "RANGE",
+              "minimum": 1,
+              "maximum": 100
+            }
+          ],
+          "maxObjects": 1
+        }
+      }
+    },
+    "pythonRemote": {
+      "type": "object",
+      "properties": {
+        "global_credentials": {
+          "displayName": "Shared credentials",
+          "description": "Used by every device that does not override them.",
+          "type": {
+            "$ref": "#/types/credentials"
+          }
+        },
+        "devices": {
+          "displayName": "Network devices",
+          "type": "list",
+          "items": {
+            "type": {
+              "$ref": "#/types/dynatrace.datasource.python:ncm_collector-device"
+            }
+          },
+          "nullable": false,
+          "minItems": 1,
+          "maxItems": 500,
+          "metaData": {
+            "addItemButton": "Add network device"
+          }
+        },
+        "global_advanced": {
+          "displayName": "Task distribution",
+          "type": {
+            "$ref": "#/types/global_advanced"
+          }
+        },
+        "advanced": {
+          "displayName": "Advanced",
+          "type": {
+            "$ref": "#/types/advanced"
+          }
+        },
+        "log_level": {
+          "displayName": "Log level",
+          "type": {
+            "$ref": "#/enums/log_level"
+          },
+          "nullable": false,
+          "default": "INFO",
+          "maxItems": 1
+        }
+      }
+    }
+  },
+  "enums": {
+    "auth_scheme": {
+      "displayName": "Authentication scheme",
+      "description": "How the collector authenticates to the device.",
+      "type": "enum",
+      "items": [
+        {
+          "value": "password",
+          "displayName": "Username and password"
+        },
+        {
+          "value": "ssh_key",
+          "displayName": "SSH private key"
+        }
+      ]
+    },
+    "host_key_policy": {
+      "displayName": "Host key policy",
+      "type": "enum",
+      "items": [
+        {
+          "value": "pinned",
+          "displayName": "Pinned - reject anything else"
+        },
+        {
+          "value": "trust_on_first_use",
+          "displayName": "Trust on first use, then pin"
+        },
+        {
+          "value": "accept_any",
+          "displayName": "Accept any key (insecure)"
+        }
+      ]
+    },
+    "vendor": {
+      "displayName": "Vendor / OS",
+      "type": "enum",
+      "items": [
+        {
+          "value": "cisco_ios",
+          "displayName": "Cisco IOS / IOS-XE"
+        },
+        {
+          "value": "cisco_nxos",
+          "displayName": "Cisco NX-OS"
+        },
+        {
+          "value": "arista_eos",
+          "displayName": "Arista EOS"
+        },
+        {
+          "value": "junos",
+          "displayName": "Juniper Junos"
+        },
+        {
+          "value": "panos",
+          "displayName": "Palo Alto PAN-OS"
+        },
+        {
+          "value": "fortios",
+          "displayName": "Fortinet FortiOS"
+        }
+      ]
+    },
+    "log_level": {
+      "displayName": "Log level",
+      "type": "enum",
+      "items": [
+        {
+          "value": "INFO",
+          "displayName": "Info"
+        },
+        {
+          "value": "DEBUG",
+          "displayName": "Debug"
+        }
+      ]
+    }
+  },
+  "dynatrace": "1",
+  "description": "Network configuration backup - connects to network devices over SSH and forwards their running configuration. Read-only: it never writes to a device.",
+  "schemaId": "python-extension.activation",
+  "displayName": "Network Configuration Manager collector",
+  "ownerProductManagement": "dynatrace",
+  "ownerDevelopment": "dynatrace",
+  "maturity": "IN_DEVELOPMENT",
+  "allowedScopes": [
+    "tenant"
+  ],
+  "multiObject": false,
+  "properties": {
+    "pythonRemote": {
+      "displayName": "Network Configuration Manager collector",
+      "type": {
+        "$ref": "#/types/pythonRemote"
+      }
+    }
+  }
+}

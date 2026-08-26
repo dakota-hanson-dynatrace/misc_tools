@@ -1,0 +1,66 @@
+{
+  "_comment": "Contract shared by the TypeScript normalizer (app, repair path) and the Python normalizer (collector, capture path). Both MUST produce identical output for every case. Each case: raw input -> expected normalized output. Real vendor volatility, drawn from what actually changes between two identical polls of an unchanged device.",
+  "cases": [
+    {
+      "name": "cisco_ios_header_and_timestamps",
+      "vendor": "cisco_ios",
+      "raw": "Building configuration...\n\nCurrent configuration : 4231 bytes\n!\n! Last configuration change at 10:23:45 UTC Mon Aug 24 2026 by admin\n! NVRAM config last updated at 09:00:01 UTC Mon Aug 24 2026\n!\nversion 15.2\nhostname core-rtr01\n!\nntp clock-period 17179860\n!\nend",
+      "expected": "version 15.2\nhostname core-rtr01\n!\nend",
+      "_note": "Two bare `!` remain after dropping the ntp clock-period line; they collapse to one. Compare with cisco_ios_unchanged_device_two_polls_match - both MUST land on identical text."
+    },
+    {
+      "name": "cisco_ios_unchanged_device_two_polls_match",
+      "vendor": "cisco_ios",
+      "raw": "Building configuration...\n\nCurrent configuration : 4999 bytes\n!\n! Last configuration change at 23:59:59 UTC Tue Aug 25 2026 by operator\n!\nversion 15.2\nhostname core-rtr01\n!\nend",
+      "expected": "version 15.2\nhostname core-rtr01\n!\nend"
+    },
+    {
+      "name": "nxos_command_and_time_banner",
+      "vendor": "cisco_nxos",
+      "raw": "!Command: show running-config\n!Running configuration last done at: Mon Aug 24 10:23:45 2026\n!Time: Mon Aug 24 10:24:00 2026\n\nversion 9.3(5)\nhostname sw-access01\n",
+      "expected": "version 9.3(5)\nhostname sw-access01"
+    },
+    {
+      "name": "arista_eos_command_header",
+      "vendor": "arista_eos",
+      "raw": "! Command: show running-config\n! device: sw1 (DCS-7050SX3-48YC8, EOS-4.28.0F)\n!\nhostname sw1\n",
+      "expected": "! device: sw1 (DCS-7050SX3-48YC8, EOS-4.28.0F)\n!\nhostname sw1"
+    },
+    {
+      "name": "junos_last_commit",
+      "vendor": "junos",
+      "raw": "## Last commit: 2026-08-24 10:23:45 UTC by admin\nset system host-name edge-fw01\nset interfaces ge-0/0/0 unit 0\n",
+      "expected": "set system host-name edge-fw01\nset interfaces ge-0/0/0 unit 0"
+    },
+    {
+      "name": "fortios_config_version_carries_user",
+      "vendor": "fortios",
+      "raw": "#config-version=FGT60E-6.4.8-FW-build1914-220304:opmode=0:vdom=0:user=admin\n#conf_file_ver=17726122808677\n#buildno=1914\nconfig system global\n    set hostname \"branch-fw\"\nend\n",
+      "expected": "#buildno=1914\nconfig system global\n    set hostname \"branch-fw\"\nend"
+    },
+    {
+      "name": "crlf_and_trailing_whitespace",
+      "vendor": "generic",
+      "raw": "hostname sw1   \r\ninterface Gi0/1\t\r\n description uplink \r\n",
+      "expected": "hostname sw1\ninterface Gi0/1\n description uplink"
+    },
+    {
+      "name": "real_change_survives_normalization",
+      "vendor": "cisco_ios",
+      "raw": "Building configuration...\n!\n! Last configuration change at 10:23:45 UTC Mon Aug 24 2026 by admin\n!\nhostname core-rtr01\nip route 10.0.0.0 255.0.0.0 192.168.1.1\nend",
+      "expected": "hostname core-rtr01\nip route 10.0.0.0 255.0.0.0 192.168.1.1\nend"
+    },
+    {
+      "name": "empty_input",
+      "vendor": "generic",
+      "raw": "",
+      "expected": ""
+    },
+    {
+      "name": "no_volatile_lines_is_identity",
+      "vendor": "generic",
+      "raw": "hostname sw1\ninterface Gi0/1",
+      "expected": "hostname sw1\ninterface Gi0/1"
+    }
+  ]
+}

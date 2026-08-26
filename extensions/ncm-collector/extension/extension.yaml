@@ -1,0 +1,23 @@
+name: custom:ncm-collector
+version: 0.0.5
+minDynatraceVersion: "1.285"
+author:
+  name: "Dynatrace Solutions Engineering"
+
+python:
+  runtime:
+    module: ncm_collector
+    version:
+      min: "3.10"
+
+  activation:
+    # REMOTE only. This extension SSHes out to network devices from an
+    # ActiveGate; it has no meaning on a OneAgent, so there is no local block.
+    remote:
+      path: activationSchema.json
+      # Devices are grouped into tasks of bucket_size and the tasks are
+      # distributed across the available ActiveGates in the group. Without this
+      # the whole device list runs as one unit on one ActiveGate.
+      split:
+        propertyPath: /pythonRemote/devices
+        bucketSizePath: /pythonRemote/global_advanced/bucket_size

@@ -4,6 +4,9 @@ A collection of personal tools, integrations, and infrastructure code:
 
 - `custom_apps/` — custom Dynatrace apps
 - `custom_integrations/` — third-party API → Dynatrace polling integrations (workflow + dashboard pairs)
+- `extensions/` — Extensions 2.0 (EF2) extensions. Some pair with a `custom_apps/` entry as two
+  halves of one product (see each side's README for which) - deploy both, not just the one
+  that looks self-contained.
 - `terraform/` — infrastructure modules
 
 ## Disclaimer

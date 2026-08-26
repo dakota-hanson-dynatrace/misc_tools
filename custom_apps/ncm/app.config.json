@@ -1,0 +1,76 @@
+{
+  "$schema": "./.dt-app/app.config.schema.json",
+  "environmentUrl": "https://<YOUR-TENANT-ID>.apps.dynatrace.com/",
+  "app": {
+    "name": "Network Config Manager",
+    "version": "0.0.25",
+    "description": "Network configuration backup, version history, diff, drift and compliance",
+    "id": "my.ncm",
+    "scopes": [
+      {
+        "name": "storage:logs:read",
+        "comment": "Read capture, version and index records"
+      },
+      {
+        "name": "storage:metrics:read",
+        "comment": "Read com.dynatrace.extension.network_device.sysuptime for the Coverage tab's address-to-entity join"
+      },
+      {
+        "name": "storage:buckets:read",
+        "comment": "REQUIRED alongside storage:logs:read - bucket-partitioned tables silently return 0 records without it"
+      },
+      {
+        "name": "storage:logs:write",
+        "comment": "Promote changed configs into the long-retention bucket"
+      },
+      {
+        "name": "storage:entities:read",
+        "comment": "Correlate devices to dt.entity.network:device"
+      },
+      {
+        "name": "document:documents:read",
+        "comment": "Read compliance policies"
+      },
+      {
+        "name": "document:documents:write",
+        "comment": "Save compliance policies"
+      },
+      {
+        "name": "document:documents:admin",
+        "comment": "Share policies across tenant users"
+      },
+      {
+        "name": "storage:bucket-definitions:read",
+        "comment": "Initial Setup: check whether the ncm_index/ncm_captures/ncm_versions buckets already exist"
+      },
+      {
+        "name": "storage:bucket-definitions:write",
+        "comment": "Initial Setup: create the dedicated buckets (B4). NOTE: this scope grant alone is NOT enough - the app's OAuth client also needs the storage:bucket-definitions:write IAM POLICY bound to it by a tenant admin, separately from this consent"
+      },
+      {
+        "name": "settings:objects:read",
+        "comment": "Initial Setup: read the OpenPipeline pipeline/routing config to check current state before writing"
+      },
+      {
+        "name": "settings:objects:write",
+        "comment": "Initial Setup: create the storage-routing pipeline and append one entry to the tenant's shared routing config"
+      },
+      {
+        "name": "extensions:definitions:read",
+        "comment": "Initial Setup: list uploaded custom:ncm-collector versions and which one is active"
+      },
+      {
+        "name": "extensions:definitions:write",
+        "comment": "Initial Setup: activate an already-uploaded extension version. Does NOT allow uploading a new package"
+      },
+      {
+        "name": "extensions:configurations:read",
+        "comment": "Initial Setup: read the monitoring configuration's device list"
+      },
+      {
+        "name": "extensions:configurations:write",
+        "comment": "Initial Setup: add/edit/remove devices in the monitoring configuration (metadata only, never credentials)"
+      }
+    ]
+  }
+}

@@ -1,0 +1,67 @@
+title: "NCM - promote captured configs"
+description: >-
+  Turns capture blobs into durable version records (the my.ncm app's
+  ncmPromote function) on a schedule, so a real capture never sits
+  un-promoted and invisible in the UI waiting for someone to run it by hand.
+  One invocation drains the whole fleet, bounded by its own byte/time budget;
+  this task calls it again in a loop until it reports remaining: 0, so a
+  large batch of changes doesn't get stuck mid-drain until the next schedule
+  tick. See the my.ncm app's README for why ncmPromote exists at all.
+isPrivate: false
+isDeployed: true
+schemaVersion: 4
+type: STANDARD
+hourlyExecutionLimit: 24
+triggerType: Schedule
+trigger:
+  schedule:
+    trigger:
+      type: cron
+      cron: "0 * * * *"
+    timezone: "UTC"
+    isActive: false  # flip to true once verified against your own tenant - see README
+    isFaulty: false
+    nextExecution: null
+    filterParameters: {}
+    inputs: {}
+tasks:
+  promote:
+    name: promote
+    description: "Call my.ncm's ncmPromote function, repeating while it reports work remaining"
+    action: dynatrace.automations:run-javascript
+    input:
+      script: |
+        export default async function () {
+          // Relative URL, matching the path a direct app-function invocation
+          // actually uses (confirmed against real traffic via
+          // `dtctl exec function <id> --debug`, not assumed from docs).
+          const url = '/platform/app-engine/app-functions/v1/apps/my.ncm/api/ncmPromote';
+
+          let totalPromoted = 0;
+          let lastCandidates = 0;
+          // ncmPromote's own byte/time budget can leave `remaining > 0` on a
+          // single call - loop rather than wait for next hour's tick, capped
+          // so a runaway fleet can't turn this into an unbounded loop.
+          for (let i = 0; i < 10; i++) {
+            const resp = await fetch(url, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({}),
+            });
+            if (!resp.ok) {
+              throw new Error(`ncmPromote call failed: ${resp.status} ${await resp.text()}`);
+            }
+            const result = await resp.json();
+            if (!result.ok) {
+              throw new Error(`ncmPromote reported failure: ${result.message}`);
+            }
+            totalPromoted += result.promoted?.length ?? 0;
+            lastCandidates = result.candidates ?? 0;
+            if (!result.remaining) break;
+          }
+          return { totalPromoted, candidates: lastCandidates };
+        }
+    position:
+      x: 0
+      "y": 1
+    predecessors: []
