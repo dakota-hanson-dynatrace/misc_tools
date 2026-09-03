@@ -1,14 +1,15 @@
 """Building the Grail records a capture produces.
 
-Python mirror of ``app/ui/app/utils/records.ts``. Both exist because there is no
-runtime shared between an ActiveGate extension and an AppEngine function; the
-app side must be able to reassemble exactly what this side splits.
+Python mirror of the paired app's ``ui/app/utils/records.ts``. Both exist
+because there is no runtime shared between an ActiveGate extension and an
+AppEngine function; the app side must be able to reassemble exactly what this
+side splits.
 
 The load-bearing fact: Grail truncates ``content`` **silently** at 512 KiB. A
 6 MB config is accepted with HTTP 200 and stored as its first 524,288 bytes,
-with no error anywhere (verified - see spikes/S1-content-size-limit.md). So
-splitting is mandatory, it must be measured in UTF-8 BYTES, and every record
-carries the expected total so the reader can detect a short arrival.
+with no error anywhere (verified against a real tenant). So splitting is
+mandatory, it must be measured in UTF-8 BYTES, and every record carries the
+expected total so the reader can detect a short arrival.
 """
 
 from __future__ import annotations

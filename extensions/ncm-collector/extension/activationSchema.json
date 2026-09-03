@@ -228,6 +228,21 @@
       "type": "object",
       "displayName": "Advanced",
       "properties": {
+        "capture_interval_hours": {
+          "displayName": "Capture interval (hours)",
+          "description": "How often every device in this configuration is captured. Config backup is a daily job, not a metric poll - deliberately hours, not minutes, to avoid hammering SSH sessions against network gear. Lower it for faster drift detection on a small fleet; raise it to reduce ActiveGate load on a large one. Takes effect the next time the extension process restarts (e.g. after a monitoring configuration change), not mid-run.",
+          "type": "integer",
+          "nullable": false,
+          "default": 24,
+          "constraints": [
+            {
+              "type": "RANGE",
+              "minimum": 1,
+              "maximum": 168
+            }
+          ],
+          "maxItems": 1
+        },
         "connect_timeout_seconds": {
           "displayName": "Connect timeout (s)",
           "type": "integer",

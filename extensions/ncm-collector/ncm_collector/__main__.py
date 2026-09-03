@@ -22,8 +22,10 @@ from .adapters import classify_output, get_adapter
 from .records import build_blob_records, build_index_record, byte_length, config_hash
 from .ssh_client import Credentials, HostKeyMismatch, capture
 
-#: How often to capture. Config backup is a daily job, not a metric poll.
-CAPTURE_INTERVAL = timedelta(hours=24)
+#: Fallback only - the real value is activation_config["advanced"]["capture_interval_hours"],
+#: read in initialize(). Config backup is a daily job, not a metric poll; the schema bounds
+#: this to 1-168h so it can never be tightened into a per-minute poll.
+DEFAULT_CAPTURE_INTERVAL_HOURS = 24
 
 #: Stagger against other monitoring configurations on the same ActiveGate, which
 #: share a CPU/RAM budget with this one.
@@ -50,9 +52,11 @@ class NcmCollectorExtension(Extension):
         # Deliberately NOT implementing query(): that is pre-registered to run
         # every minute, and hammering SSH on network gear once a minute would be
         # both useless and rude. A long interval is registered instead.
+        advanced = self.activation_config.get("advanced") or {}
+        interval_hours = int(advanced.get("capture_interval_hours", DEFAULT_CAPTURE_INTERVAL_HOURS))
         self.schedule(
             self.capture_all,
-            CAPTURE_INTERVAL,
+            timedelta(hours=interval_hours),
             offset_seconds=CAPTURE_OFFSET_SECONDS,
         )
 
@@ -288,7 +292,7 @@ class NcmCollectorExtension(Extension):
         # per calendar day, or a retried/re-triggered run within the same day
         # mints a second, undeduped index+capture record - every fleet count
         # in the app inflates and versionPeriods' revert math (which assumes
-        # exactly one capture per day) breaks. Matches tools/seed.ts.
+        # exactly one capture per day) breaks.
         stamp = capture_time[:10]
 
         ok = 0

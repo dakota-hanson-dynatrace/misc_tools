@@ -31,7 +31,13 @@ for the UI.
   and the OpenPipeline routing that sends captured records there instead of `default_logs`.
   Shows a persistent banner and a nav indicator until it reports all-green.
 - **Manage** - activate an already-uploaded extension version, and add/edit/remove devices in
-  the monitoring configuration (metadata only - see [Security model](#security-model)).
+  the monitoring configuration (metadata only - see [Security model](#security-model)). A
+  device can point at its own Credential Vault entry instead of the configuration's shared
+  credentials, for fleets that need a unique password per device.
+- **Bulk Credentials** - a deliberately separate, admin-only page for provisioning or rotating
+  vault entries at fleet scale. See [Credential provisioning and rotation at
+  scale](#credential-provisioning-and-rotation-at-scale) - it is the one place in this app that
+  is a real exception to the security model described below.
 
 ## Setup
 
@@ -113,16 +119,20 @@ for exactly how it was verified here), then flip `isActive: true`.
   state before writing anything; defaults to a dry run.
 - **`api/ncmExtension.function.ts`** - the Manage tab's backend. Calls the Extensions 2.0 API
   directly via the generic `httpClient` export (no dedicated SDK client exists for monitoring
-  configurations). Never touches `global_credentials` - every device write reads the full
-  configuration and replaces only `pythonRemote.devices`, sending the rest back exactly as
-  read.
+  configurations). Never touches a plaintext credential - `sanitizeDevice()`/
+  `buildDeviceForWrite()` guarantee that a device read or write only ever carries a Credential
+  Vault entry ID, never `username`/`password`, even if a raw config somewhere contained them.
+- **`api/ncmCredentials.function.ts`** - the Bulk Credentials page's backend, and the one
+  deliberate exception to the rule above. See [Credential provisioning and rotation at
+  scale](#credential-provisioning-and-rotation-at-scale).
 
 ## Security model
 
-- **Device credentials never reach the app or the browser.** The extension resolves them from
-  the Dynatrace Credential Vault at capture time; this app only ever sees a vault reference ID
-  in the monitoring configuration, and its own device-management code is written to never
-  read or write the credential fields at all.
+- **Device credentials never reach the app or the browser** - with one deliberate, clearly
+  isolated exception (bulk provisioning, described below). The extension resolves credentials
+  from the Dynatrace Credential Vault at capture time; the rest of this app only ever sees a
+  vault reference ID in the monitoring configuration, and its device-management code is
+  written to never read or write the credential fields at all.
 - **SSH host keys** are trust-on-first-use, then pinned - a `known_hosts` file would be
   extension state, which the design forbids, so the first-observed fingerprint is recorded and
   surfaces in the app for approval instead.
@@ -130,6 +140,71 @@ for exactly how it was verified here), then flip `isActive: true`.
   AppEngine functions cap request/response payload at 5 MB each way, and the collector's
   package is several MB - it does not fit through that boundary regardless of design choices.
   Build and sign stay a local step against the project's own private signing key.
+
+## Credential provisioning and rotation at scale
+
+Most fleets don't need this section - a handful of shared, tiered credentials (one per site,
+per vendor, or per security zone) referenced by every device via the monitoring
+configuration's `global_credentials` covers the common case, and never requires touching this
+page at all. This section is for the minority case: a security policy that requires a unique
+password per device, at a scale (hundreds or thousands of devices) where creating Credential
+Vault entries one at a time through Settings doesn't work.
+
+### Two ways to bulk-provision, and why both exist
+
+| | `tools/bulk-provision-vault.ts` | The **Bulk Credentials** page in the app |
+|---|---|---|
+| Where it runs | Locally, by an admin with `dtctl` access | In the deployed app, in the browser |
+| Does the app ever see a password? | No - never touches anything deployed | **Yes**, transiently, for this action only |
+| Requires | `dtctl` / CLI access | Just a browser and the app's scopes granted |
+
+The local script is the more conservative choice and keeps the app's "never sees a credential"
+guarantee airtight, but requires giving every admin who onboards devices `dtctl`/CLI access -
+not always realistic. The in-app page trades that guarantee, narrowly and visibly, for
+letting any admin with browser access do the same thing. Pick whichever matches how your
+organization actually operates; nothing about using one forecloses using the other later.
+
+### Bulk Credentials page (`ncmCredentials.function.ts`)
+
+Deliberately its own page, not folded into Manage, so this exception is easy to find and easy
+to audit rather than buried in the routine device-management code path. It never logs a row,
+never persists an uploaded file, and never echoes a password back in any response - only
+aliases, vault entry IDs, and pass/fail status. Requires three additional scopes beyond what
+the rest of the app needs (`credential-vault:entries:write/read/admin` - see `app.config.json`
+for exactly what each is used for); a tenant admin has to consent to these separately, the
+same as any other scope grant.
+
+**Create** - CSV (`alias,username,password`), one new vault entry per row. Copy the returned
+`credentialVaultId` into that device's entry on the Manage tab.
+
+**Rotate - the long-term-management answer.** CSV (`credentialVaultId,username,password`),
+updates each entry **in place** via the Credential Vault API's `PUT /entries/{id}`, which
+replaces the password without changing the entry's ID. This is the entire point: rotating a
+password never requires touching the monitoring configuration or any device record - every
+device that already references that vault entry picks up the new password automatically on
+its next scheduled capture. The alternative (creating a new entry per rotation and updating
+every device that pointed at the old one) doesn't scale and was rejected for exactly that
+reason.
+
+A few things worth knowing about rotation specifically:
+- It requires `credential-vault:entries:admin` - a materially more privileged scope than the
+  `:write` scope creation needs, since it can modify (and, if ever extended to use it, delete)
+  an existing credential rather than only add new ones. Review this scope grant deliberately,
+  not as a rubber stamp alongside the others.
+- The function reads each entry's existing metadata first (name, scopes, `ownerAccessOnly`)
+  and reuses it - the Credential Vault's `GET` endpoint never returns `username`/`password` at
+  all (confirmed against the real API schema), so there is no secret to accidentally handle on
+  the read side; only the new username/password you supply ever get written.
+- It refuses to rotate an entry that isn't `USERNAME_PASSWORD` type, in case a vault ID from
+  somewhere else in the tenant gets pasted in by mistake.
+- **Nothing here talks to an external secrets manager.** If your organization rotates network
+  device credentials from CyberArk, HashiCorp Vault, or a similar PAM system, that rotation has
+  to be mirrored into the Dynatrace Credential Vault by *something* - either by hand through
+  this page, or by having your PAM system's own rotation pipeline call the same
+  `PUT /entries/{id}` API directly. Building that sync is a real, separate piece of work this
+  app does not attempt; until it exists (or the manual step is accepted as policy), a rotation
+  on the PAM side that isn't mirrored here means captures start failing `auth_failed`
+  fleet-wide with no warning until someone notices.
 
 ## Current status and known limitations
 

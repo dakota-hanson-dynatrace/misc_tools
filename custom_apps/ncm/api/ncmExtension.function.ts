@@ -11,23 +11,33 @@ import { httpClient } from '@dynatrace-sdk/http-client';
 // not guessed.
 //
 // Scope: version activation (pick an ALREADY-UPLOADED version and make it
-// active) and device metadata management (hostname/port/alias/vendor/site).
+// active), device metadata management (hostname/port/alias/vendor/site), and
+// per-device credential SOURCE (shared vs a specific vault entry ID).
 // Deliberately NOT in scope, and not just missing polish:
 //   - Uploading a NEW extension package. The zip is ~7 MB; AppEngine
 //     functions cap request/response payload at 5 MB each way. It does not
 //     fit through the function boundary at all. Build+sign stays a local
 //     dt-sdk command regardless, since it needs the private signing key.
-//   - Per-device custom credentials (`use_global_credentials: false`). Those
-//     are a `credentials` sub-object with secret-typed fields; keeping the
-//     app out of that path entirely is what makes "the app never sees a
-//     device credential" still true after this feature exists. Every device
-//     this function writes has use_global_credentials forced to true.
+//   - Ever reading or writing `username`/`password`. A device can point at
+//     its own vault entry instead of the configuration's shared credentials
+//     (needed at fleet scale - see tools/bulk-provision-vault.ts), but this
+//     function only ever handles a vault entry ID, a pointer, never the
+//     secret it points to. `sanitizeCredentials`/`buildCredentials` below are
+//     the two places that guarantee that - every device read or write passes
+//     through one of them, and neither has a code path that touches a
+//     plaintext credential field even if one were present in the raw config.
 
 const EXTENSION_NAME = 'custom:ncm-collector';
 
 interface HostKey {
   policy: 'pinned' | 'trust_on_first_use' | 'accept_any';
   fingerprint?: string | null;
+}
+
+/** Never username/password - see the file-level comment. */
+interface DeviceCredentialRef {
+  useCredentialVault: true;
+  credentialVaultId: string;
 }
 
 interface Device {
@@ -37,7 +47,9 @@ interface Device {
   alias: string;
   vendor: string;
   site?: string | null;
-  use_global_credentials: true;
+  use_global_credentials: boolean;
+  /** Present only when use_global_credentials is false. */
+  credentials?: DeviceCredentialRef;
   host_key: HostKey;
 }
 
@@ -98,10 +110,54 @@ async function listVersions(): Promise<ExtensionVersion[]> {
   return body.items.map((v) => ({ ...v, active: v.version === active }));
 }
 
+/**
+ * The platform's actual device shape - untrusted input as far as credentials
+ * go. `credentials` may carry `username`/`password` (plaintext, if the
+ * config predates this app or was hand-edited to use inline credentials
+ * instead of the vault). Never widen this to flow straight into `Device`.
+ */
+interface RawDevice {
+  enabled: boolean;
+  hostname: string;
+  port: number;
+  alias: string;
+  vendor: string;
+  site?: string | null;
+  use_global_credentials: boolean;
+  credentials?: { scheme?: string; useCredentialVault?: boolean; credentialVaultId?: string; username?: string; password?: string };
+  host_key: HostKey;
+}
+
 interface RawMonitoringConfig {
   objectId: string;
   scope: string;
-  value: { pythonRemote?: { devices?: Device[] } };
+  value: { pythonRemote?: { devices?: RawDevice[] } };
+}
+
+/** Read path: strips everything except a vault entry ID reference, unconditionally. */
+function sanitizeDevice(raw: RawDevice): Device {
+  const { credentials, ...rest } = raw;
+  const safe: Device = { ...rest };
+  if (raw.use_global_credentials === false && credentials?.credentialVaultId) {
+    safe.credentials = { useCredentialVault: true, credentialVaultId: credentials.credentialVaultId };
+  }
+  return safe;
+}
+
+/**
+ * Write path: rebuilds the credentials sub-object from scratch out of just
+ * the vault entry ID, ignoring every other field a caller's payload might
+ * contain. This is what makes it structurally impossible for this function
+ * to ever write a plaintext credential, not merely a promise that it won't.
+ */
+function buildDeviceForWrite(d: Device): RawDevice {
+  const { credentials, ...rest } = d;
+  if (!d.use_global_credentials) {
+    const vaultId = credentials?.credentialVaultId;
+    if (!vaultId) throw new Error(`${d.alias || d.hostname}: credentialVaultId is required when not using shared credentials`);
+    return { ...rest, use_global_credentials: false, credentials: { scheme: 'password', useCredentialVault: true, credentialVaultId: vaultId } };
+  }
+  return { ...rest, use_global_credentials: true };
 }
 
 async function listMonitoringConfigs(): Promise<RawMonitoringConfig[]> {
@@ -125,20 +181,28 @@ async function getMonitoringConfig(configId: string): Promise<RawMonitoringConfi
  * Replaces ONLY pythonRemote.devices and sends the rest of the config back
  * exactly as read - including global_credentials, which GET returns masked
  * (e.g. "***a1b2c3d4e5f6a7b8***"). Verified safe by hand against a real
- * tenant before this function was written: read the config, PUT the masked
- * value straight back unchanged, re-read - the masked fragment came back
- * byte-identical and the device kept capturing. The PUT endpoint has no
+ * tenant before this function was written: read the config, PUT the
+ * masked value straight back unchanged, re-read - the masked fragment came
+ * back byte-identical and the device kept capturing. The PUT endpoint has no
  * optimistic-locking version and replaces the value wholesale, so touching
  * anything beyond `devices` here would risk corrupting the real credential.
  */
-async function putDevices(configId: string, devices: Device[]): Promise<void> {
+async function putDevices(configId: string, devices: Device[]): Promise<Device[]> {
   const current = await getMonitoringConfig(configId);
-  const value = { ...current.value, pythonRemote: { ...current.value.pythonRemote, devices } };
+  const rawDevices = devices.map(buildDeviceForWrite);
+  const value = { ...current.value, pythonRemote: { ...current.value.pythonRemote, devices: rawDevices } };
   await httpClient.send({
     url: path(`${encodeURIComponent(EXTENSION_NAME)}/monitoring-configurations/${encodeURIComponent(configId)}`),
     method: 'PUT',
     body: { value },
   });
+  // Return what was actually WRITTEN, sanitized the same way getDevices
+  // sanitizes a read - never the caller's raw input. A caller's payload could
+  // in principle carry an unexpected field (a future UI bug, a direct API
+  // call); echoing it back verbatim would have been the one crack in an
+  // otherwise structural guarantee. This closes it by construction rather
+  // than by validating every field we can think of today.
+  return rawDevices.map(sanitizeDevice);
 }
 
 async function activateVersion(version: string): Promise<void> {
@@ -157,6 +221,10 @@ function validateDevice(d: Partial<Device>): string | null {
   if (!d.vendor || !VENDORS.includes(d.vendor)) return `vendor must be one of ${VENDORS.join(', ')}`;
   const POLICIES = ['pinned', 'trust_on_first_use', 'accept_any'];
   if (!d.host_key || !POLICIES.includes(d.host_key.policy)) return `host_key.policy must be one of ${POLICIES.join(', ')}`;
+  if (d.use_global_credentials === false) {
+    const vaultId = d.credentials?.credentialVaultId;
+    if (!vaultId || !vaultId.trim()) return 'credentialVaultId is required when not using the configuration\'s shared credentials';
+  }
   return null;
 }
 
@@ -178,7 +246,7 @@ export default async function (request: ExtensionRequest): Promise<ExtensionResp
       case 'getDevices': {
         if (!request.configId) return { ok: false, message: 'configId is required' };
         const cfg = await getMonitoringConfig(request.configId);
-        return { ok: true, configId: request.configId, devices: cfg.value.pythonRemote?.devices ?? [] };
+        return { ok: true, configId: request.configId, devices: (cfg.value.pythonRemote?.devices ?? []).map(sanitizeDevice) };
       }
       case 'saveDevices': {
         if (!request.configId) return { ok: false, message: 'configId is required' };
@@ -186,13 +254,14 @@ export default async function (request: ExtensionRequest): Promise<ExtensionResp
         for (const d of devices) {
           const problem = validateDevice(d);
           if (problem) return { ok: false, message: `${d.alias || d.hostname || 'device'}: ${problem}` };
-          // Force this rather than merely validate it: this function must
-          // never be the thing that flips a device onto per-device secret
-          // fields, even if a caller's payload tried to.
-          d.use_global_credentials = true;
         }
-        await putDevices(request.configId, devices);
-        return { ok: true, configId: request.configId, devices };
+        // buildDeviceForWrite (inside putDevices) is what actually enforces
+        // "no plaintext credential can be written" - it rebuilds each
+        // device's credentials sub-object from just the vault id, discarding
+        // anything else a payload might contain. putDevices returns what it
+        // actually wrote, sanitized - never the raw request back verbatim.
+        const written = await putDevices(request.configId, devices);
+        return { ok: true, configId: request.configId, devices: written };
       }
       case 'activateVersion': {
         if (!request.version) return { ok: false, message: 'version is required' };

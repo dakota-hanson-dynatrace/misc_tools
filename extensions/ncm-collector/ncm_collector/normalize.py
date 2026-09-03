@@ -8,8 +8,8 @@ This runs ONLY to compute a hash. The RAW config text is what gets shipped and
 stored, so a bug here is repairable: fix the patterns and re-derive hashes from
 the stored raw blobs.
 
-MUST stay byte-for-byte identical to the TypeScript implementation in
-app/ui/app/utils/normalize.ts. The shared contract is
+MUST stay byte-for-byte identical to the TypeScript implementation in the
+paired app's ui/app/utils/normalize.ts. The shared contract is
 shared/normalize-fixtures.json - both self-checks run it. If they diverge,
 hashes diverge and every device looks permanently changed.
 """

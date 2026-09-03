@@ -8,6 +8,7 @@ import { Changes } from './pages/Changes';
 import { Failures } from './pages/Failures';
 import { Setup } from './pages/Setup';
 import { Manage } from './pages/Manage';
+import { Credentials } from './pages/Credentials';
 import { DeviceDetail } from './pages/DeviceDetail';
 import { Diff } from './pages/Diff';
 import { SlideOverDrawer } from './components/SlideOverDrawer';
@@ -21,6 +22,7 @@ const NAV = [
   { to: '/failures', label: 'Backup failures', end: false },
   { to: '/setup', label: 'Initial Setup', end: false },
   { to: '/manage', label: 'Manage', end: false },
+  { to: '/credentials', label: 'Bulk Credentials', end: false },
 ];
 
 // Hand-rolled nav rather than AppHeader: verified-by-eye is the rule in this
@@ -96,6 +98,7 @@ export const App = () => {
         <Route path="/failures" element={<Failures />} />
         <Route path="/setup" element={<Setup />} />
         <Route path="/manage" element={<Manage />} />
+        <Route path="/credentials" element={<Credentials />} />
         <Route path="/device/:deviceId" element={<DeviceDetail />} />
         <Route path="/diff/:deviceId" element={<Diff />} />
       </Routes>

@@ -59,6 +59,9 @@ value:
       # this configuration's devices are split across the ActiveGate group.
       bucket_size: 25
     advanced:
+      # 1-168h. Config backup is a daily job, not a metric poll - see the
+      # README's "Capture schedule" section before setting this below a day.
+      capture_interval_hours: 24
       connect_timeout_seconds: 20
       command_timeout_seconds: 120
       max_concurrent_devices: 5

@@ -28,24 +28,12 @@
         "comment": "Correlate devices to dt.entity.network:device"
       },
       {
-        "name": "document:documents:read",
-        "comment": "Read compliance policies"
-      },
-      {
-        "name": "document:documents:write",
-        "comment": "Save compliance policies"
-      },
-      {
-        "name": "document:documents:admin",
-        "comment": "Share policies across tenant users"
-      },
-      {
         "name": "storage:bucket-definitions:read",
         "comment": "Initial Setup: check whether the ncm_index/ncm_captures/ncm_versions buckets already exist"
       },
       {
         "name": "storage:bucket-definitions:write",
-        "comment": "Initial Setup: create the dedicated buckets (B4). NOTE: this scope grant alone is NOT enough - the app's OAuth client also needs the storage:bucket-definitions:write IAM POLICY bound to it by a tenant admin, separately from this consent"
+        "comment": "Initial Setup: create the dedicated buckets. NOTE: this scope grant alone is NOT enough - the app's OAuth client also needs the storage:bucket-definitions:write IAM POLICY bound to it by a tenant admin, separately from this consent"
       },
       {
         "name": "settings:objects:read",
@@ -70,6 +58,18 @@
       {
         "name": "extensions:configurations:write",
         "comment": "Initial Setup: add/edit/remove devices in the monitoring configuration (metadata only, never credentials)"
+      },
+      {
+        "name": "credential-vault:entries:write",
+        "comment": "Bulk Credentials (admin-only page): create new vault entries for device credentials at fleet scale"
+      },
+      {
+        "name": "credential-vault:entries:read",
+        "comment": "Bulk Credentials: read an existing entry's metadata (name/scopes/ownerAccessOnly - the API never returns username or password) before rotating it"
+      },
+      {
+        "name": "credential-vault:entries:admin",
+        "comment": "Bulk Credentials: rotate (update in place) an existing vault entry's password so devices referencing it never need to change. The most privileged scope this app requests - it is the only one that can modify an existing credential"
       }
     ]
   }

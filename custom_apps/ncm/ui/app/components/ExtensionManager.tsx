@@ -6,14 +6,22 @@ import { Button } from '@dynatrace/strato-components/buttons';
 import Colors from '@dynatrace/strato-design-tokens/colors';
 
 // Extension version activation + device metadata management, called from the
-// Initial Setup page. See api/ncmExtension.function.ts for what this is
-// deliberately NOT able to do (upload a new package, touch per-device
-// credentials) and why - both are hard platform/security limits, not missing
-// polish.
+// Initial Setup page. Devices can point at the configuration's shared
+// credentials or at their own Credential Vault entry (needed once a fleet
+// has genuinely unique per-device passwords - see
+// tools/bulk-provision-vault.ts for creating those entries at scale). Either
+// way, this UI only ever handles a vault entry ID - a pointer, never a
+// secret. See api/ncmExtension.function.ts for what this is deliberately NOT
+// able to do (upload a new package, read or write a plaintext credential)
+// and why - both are hard platform/security limits, not missing polish.
 
 interface HostKey {
   policy: 'pinned' | 'trust_on_first_use' | 'accept_any';
   fingerprint?: string | null;
+}
+interface DeviceCredentialRef {
+  useCredentialVault: true;
+  credentialVaultId: string;
 }
 interface Device {
   enabled: boolean;
@@ -22,7 +30,8 @@ interface Device {
   alias: string;
   vendor: string;
   site?: string | null;
-  use_global_credentials: true;
+  use_global_credentials: boolean;
+  credentials?: DeviceCredentialRef;
   host_key: HostKey;
 }
 interface ExtensionVersion {
@@ -196,8 +205,10 @@ export const ExtensionManager = () => {
       <Flex flexDirection="column" gap={12}>
         <Heading level={2}>Devices</Heading>
         <Paragraph>
-          Metadata only - hostname, port, name, vendor, site, and host key policy. Credentials always stay on the
-          configuration's shared vault-backed credentials; there is no per-device credential field here.
+          Metadata only - hostname, port, name, vendor, site, host key policy, and which credential source a device
+          uses. A device can use the configuration's shared credentials, or point at its own Credential Vault entry
+          for fleets that need a unique password per device. Either way, only a vault entry ID ever passes through
+          here - never a username or password.
         </Paragraph>
 
         {configs && configs.length > 1 && (
@@ -216,32 +227,58 @@ export const ExtensionManager = () => {
 
         {devices && (
           <Flex flexDirection="column" gap={8}>
-            {devices.map((d, i) => (
-              <Flex key={i} gap={8} alignItems="center" flexWrap="wrap"
+            {devices.map((d, i) => {
+              const useShared = d.use_global_credentials;
+              return (
+              <Flex key={i} flexDirection="column" gap={6}
                 style={{ padding: 8, border: `1px solid ${Colors.Border.Neutral.Default}`, borderRadius: 6 }}
               >
-                <input style={{ ...inputStyle, width: 140 }} placeholder="Hostname/IP" value={d.hostname}
-                  onChange={(e) => updateDevice(i, { hostname: e.target.value })} />
-                <input style={{ ...inputStyle, width: 120 }} placeholder="Device name" value={d.alias}
-                  onChange={(e) => updateDevice(i, { alias: e.target.value })} />
-                <input style={{ ...inputStyle, width: 70 }} type="number" min={1} max={65535} value={d.port}
-                  onChange={(e) => updateDevice(i, { port: Number(e.target.value) || 22 })} />
-                <select style={inputStyle} value={d.vendor} onChange={(e) => updateDevice(i, { vendor: e.target.value })}>
-                  {VENDORS.map((v) => <option key={v.value} value={v.value}>{v.label}</option>)}
-                </select>
-                <input style={{ ...inputStyle, width: 120 }} placeholder="Site" value={d.site ?? ''}
-                  onChange={(e) => updateDevice(i, { site: e.target.value })} />
-                <select style={inputStyle} value={d.host_key.policy}
-                  onChange={(e) => updateDevice(i, { host_key: { ...d.host_key, policy: e.target.value as HostKey['policy'] } })}>
-                  {HOST_KEY_POLICIES.map((p) => <option key={p.value} value={p.value}>{p.label}</option>)}
-                </select>
-                <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 13 }}>
-                  <input type="checkbox" checked={d.enabled} onChange={(e) => updateDevice(i, { enabled: e.target.checked })} />
-                  Enabled
-                </label>
-                <Button onClick={() => removeDevice(i)}>Remove</Button>
+                <Flex gap={8} alignItems="center" flexWrap="wrap">
+                  <input style={{ ...inputStyle, width: 140 }} placeholder="Hostname/IP" value={d.hostname}
+                    onChange={(e) => updateDevice(i, { hostname: e.target.value })} />
+                  <input style={{ ...inputStyle, width: 120 }} placeholder="Device name" value={d.alias}
+                    onChange={(e) => updateDevice(i, { alias: e.target.value })} />
+                  <input style={{ ...inputStyle, width: 70 }} type="number" min={1} max={65535} value={d.port}
+                    onChange={(e) => updateDevice(i, { port: Number(e.target.value) || 22 })} />
+                  <select style={inputStyle} value={d.vendor} onChange={(e) => updateDevice(i, { vendor: e.target.value })}>
+                    {VENDORS.map((v) => <option key={v.value} value={v.value}>{v.label}</option>)}
+                  </select>
+                  <input style={{ ...inputStyle, width: 120 }} placeholder="Site" value={d.site ?? ''}
+                    onChange={(e) => updateDevice(i, { site: e.target.value })} />
+                  <select style={inputStyle} value={d.host_key.policy}
+                    onChange={(e) => updateDevice(i, { host_key: { ...d.host_key, policy: e.target.value as HostKey['policy'] } })}>
+                    {HOST_KEY_POLICIES.map((p) => <option key={p.value} value={p.value}>{p.label}</option>)}
+                  </select>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 13 }}>
+                    <input type="checkbox" checked={d.enabled} onChange={(e) => updateDevice(i, { enabled: e.target.checked })} />
+                    Enabled
+                  </label>
+                  <Button onClick={() => removeDevice(i)}>Remove</Button>
+                </Flex>
+                <Flex gap={8} alignItems="center" flexWrap="wrap">
+                  <Text style={{ fontSize: 13, color: Colors.Text.Neutral.Subdued }}>Credentials:</Text>
+                  <select style={inputStyle} value={useShared ? 'shared' : 'vault'}
+                    onChange={(e) => {
+                      if (e.target.value === 'shared') {
+                        updateDevice(i, { use_global_credentials: true, credentials: undefined });
+                      } else {
+                        updateDevice(i, { use_global_credentials: false, credentials: { useCredentialVault: true, credentialVaultId: d.credentials?.credentialVaultId ?? '' } });
+                      }
+                    }}
+                  >
+                    <option value="shared">Configuration's shared credentials</option>
+                    <option value="vault">This device's own vault entry</option>
+                  </select>
+                  {!useShared && (
+                    <input style={{ ...inputStyle, width: 260 }} placeholder="CREDENTIALS_VAULT-... (from Settings, or bulk-provision-vault.ts)"
+                      value={d.credentials?.credentialVaultId ?? ''}
+                      onChange={(e) => updateDevice(i, { credentials: { useCredentialVault: true, credentialVaultId: e.target.value } })}
+                    />
+                  )}
+                </Flex>
               </Flex>
-            ))}
+              );
+            })}
           </Flex>
         )}
 

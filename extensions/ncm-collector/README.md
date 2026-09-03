@@ -49,6 +49,19 @@ entirely on both classic IOS and IOS-XE. The adapter's safety net (detect a `>` 
 fail loudly rather than silently return a truncated config) has not been exercised against a
 real device that actually needs it.
 
+## Capture schedule
+
+Every device in a monitoring configuration is captured on the same interval, set by
+`advanced.capture_interval_hours` (1-168 hours, default 24). Config backup is treated as a
+daily job, not a metric poll - the extension deliberately doesn't implement the platform's
+built-in per-minute `query()` hook, so this can't be tightened into a per-minute SSH hammer
+against network gear even by mistake. Lower it for faster drift detection on a small fleet;
+raise it toward the 168h (weekly) ceiling to reduce ActiveGate load on a large one.
+
+**Takes effect on the extension process's next restart** (e.g. right after you save a
+monitoring configuration change) - not mid-run. There's no per-device override; it's one
+interval per monitoring configuration, shared by every device in it.
+
 ## Setup order
 
 1. **Signing CA.** `dt-sdk gencerts` mints a new, untrusted root every time - locate and reuse
@@ -100,7 +113,8 @@ real deployment needs that closed.
 | `workflows/ncm-promote-schedule.yaml` | Optional but strongly recommended: schedules the app's `ncmPromote` function so a real capture never sits un-promoted waiting for someone to run it by hand. Ships with its trigger disabled - verify against your own tenant, then flip `isActive: true`. |
 | `example-monitoring-config.yaml` | Template device inventory - copy and fill in |
 | `setup.py` | Python packaging metadata |
-| `activation.json`, `secrets.json` (gitignored) | Local-simulation-only scaffold files for `dt-sdk run`; not used by a real deployment |
+| `activation.json` | Local-simulation-only scaffold for `dt-sdk run`; not used by a real deployment. Its `password` field is a `{{myPassword}}` template reference, not a real value - never paste a real credential directly into this file. |
+| `secrets.json` (gitignored) | Supplies the real value for `activation.json`'s `{{myPassword}}` placeholder during local simulation only. This is the one file in this tree that could ever hold something real - keep it that way. |
 
 ## Running the checks
 

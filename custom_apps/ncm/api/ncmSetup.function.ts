@@ -1,9 +1,8 @@
 import { bucketDefinitionsClient } from '@dynatrace-sdk/client-bucket-management';
 import { settingsObjectsClient } from '@dynatrace-sdk/client-settings';
 
-// One-time tenant setup for B4 (WORK-QUEUE.md): creates the three dedicated
-// Grail buckets and wires OpenPipeline so ncm.* records land in them instead
-// of default_logs.
+// One-time tenant setup: creates the three dedicated Grail buckets and wires
+// OpenPipeline so ncm.* records land in them instead of default_logs.
 //
 // Every shape here was pulled from the live tenant, not guessed: the
 // bucketAssignment processor shape came from a real PostgreSQL extension's

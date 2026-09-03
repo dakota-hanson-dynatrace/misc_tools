@@ -2,8 +2,8 @@
 
     python3 ncm_collector/normalize_selfcheck.py
 
-Runs the SAME fixture file as the TypeScript self-check
-(app/ui/app/utils/normalize.selfcheck.ts). Both must pass. No test framework -
+Runs the SAME fixture file as the paired app's TypeScript self-check
+(ui/app/utils/normalize.selfcheck.ts). Both must pass. No test framework -
 this is deliberately a plain script so it runs anywhere, including on an
 ActiveGate.
 """
@@ -18,7 +18,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from ncm_collector.normalize import config_hash, normalize_config  # noqa: E402
 
-# collector/ncm_collector/ncm_collector/ -> up 3 -> ncm/
+# Repo root is 3 levels up from this file, regardless of what the collector's
+# own top-level directory is named - this is deliberately relative, not a
+# path baked in by name, so a rename can't silently break it.
 FIXTURES = Path(__file__).resolve().parents[3] / "shared" / "normalize-fixtures.json"
 
 

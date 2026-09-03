@@ -2,7 +2,7 @@
 //
 // The single most important thing in this file is that `content` truncates
 // SILENTLY at 512 KiB. A 6 MB config is accepted with HTTP 200, stored as its
-// first 512 KiB, and looks perfectly healthy (verified - spikes/S1). Nothing
+// first 512 KiB, and looks perfectly healthy (verified against a real tenant). Nothing
 // detects that except comparing reassembled length against a recorded total.
 //
 // So: split by MEASURED UTF-8 BYTES, record the expected total, and assert on
