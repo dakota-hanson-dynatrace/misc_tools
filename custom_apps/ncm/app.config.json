@@ -3,7 +3,7 @@
   "environmentUrl": "https://<YOUR-TENANT-ID>.apps.dynatrace.com/",
   "app": {
     "name": "Network Config Manager",
-    "version": "0.0.25",
+    "version": "0.0.30",
     "description": "Network configuration backup, version history, diff, drift and compliance",
     "id": "my.ncm",
     "scopes": [
@@ -45,19 +45,19 @@
       },
       {
         "name": "extensions:definitions:read",
-        "comment": "Initial Setup: list uploaded custom:ncm-collector versions and which one is active"
+        "comment": "Manage: list uploaded custom:ncm-collector versions and which one is active"
       },
       {
         "name": "extensions:definitions:write",
-        "comment": "Initial Setup: activate an already-uploaded extension version. Does NOT allow uploading a new package"
+        "comment": "Manage: activate an already-uploaded extension version. Does NOT allow uploading a new package"
       },
       {
         "name": "extensions:configurations:read",
-        "comment": "Initial Setup: read the monitoring configuration's device list"
+        "comment": "Manage: read the monitoring configuration's device list"
       },
       {
         "name": "extensions:configurations:write",
-        "comment": "Initial Setup: add/edit/remove devices in the monitoring configuration (metadata only, never credentials)"
+        "comment": "Manage: add/edit/remove devices in the monitoring configuration (metadata only, never credentials)"
       },
       {
         "name": "credential-vault:entries:write",

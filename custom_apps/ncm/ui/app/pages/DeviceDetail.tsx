@@ -3,6 +3,7 @@ import { useParams, useNavigate, useLocation, type Location } from 'react-router
 import { Flex, Surface } from '@dynatrace/strato-components/layouts';
 import { Heading, Paragraph, Text, Code } from '@dynatrace/strato-components/typography';
 import { Button } from '@dynatrace/strato-components/buttons';
+import { Select } from '@dynatrace/strato-components/forms';
 import { DataTable } from '@dynatrace/strato-components/tables';
 import { CodeEditor } from '@dynatrace/strato-components/editors';
 import { versionPeriods, versionCaptureIds, deviceStatus } from '../queries';
@@ -115,18 +116,16 @@ export const DeviceDetail = () => {
         )}
       </Flex>
 
-      <Flex gap={8} flexWrap="wrap">
-        {versions.map((v) => (
-          <Button
-            key={v['ncm.capture.id']}
-            variant={v['ncm.capture.id'] === captureId ? 'accent' : 'default'}
-            onClick={() => setSelected(v['ncm.capture.id'])}
-          >
-            {fmtTime(v.captureTime)}
-            {num(v.chunks) > 1 ? ` (${num(v.chunks)} chunks)` : ''}
-          </Button>
-        ))}
-      </Flex>
+      <Select value={captureId ?? null} onChange={(v) => setSelected(v ?? undefined)}>
+        <Select.Content>
+          {versions.map((v) => (
+            <Select.Option key={v['ncm.capture.id']} value={v['ncm.capture.id']}>
+              {fmtTime(v.captureTime)}
+              {num(v.chunks) > 1 ? ` (${num(v.chunks)} chunks)` : ''}
+            </Select.Option>
+          ))}
+        </Select.Content>
+      </Select>
 
       {problem ? (
         // Never render a config that failed integrity checks - a truncated

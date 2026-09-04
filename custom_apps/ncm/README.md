@@ -20,9 +20,12 @@ for the UI.
   time.
 - **Coverage** - cross-references devices Dynatrace already knows about via SNMP against what
   is actually being backed up, surfacing devices that are monitored but never backed up (or
-  vice versa) as a real inventory discrepancy, not a silently-dropped edge case.
-- **Changes** - fleet-wide change feed, with revert detection (a config that changed away and
-  came back is flagged, not just silently omitted).
+  vice versa) as a real inventory discrepancy, not a silently-dropped edge case. A device that's
+  monitored but never backed up gets an **Add** action to onboard it on the spot - picking an
+  existing Credential Vault entry rather than requiring a trip to Manage first. SNMP can't
+  supply vendor, site, or management port, so those still need a human; the device is captured
+  on the extension's next scheduled run, not immediately.
+- **Changes** - fleet-wide change feed: every config version except each device's first.
 - **Backup failures** - which devices failed last night and why (auth, unreachable, timeout,
   needs enable, host-key mismatch).
 - **Device detail / Diff** - version history, stored config viewer, diff between any two
@@ -96,7 +99,7 @@ but hasn't been exhaustively proven not to either.
 ### 3. Deploy the extension and start capturing
 
 See the [collector's README](../../extensions/ncm-collector/README.md) for the full sequence
-(build, sign, upload, activate, trust bootstrap, monitoring configuration). Once it's running,
+(signing CA, trust bootstrap, build, sign, upload, activate, monitoring configuration). Once it's running,
 the **Manage** tab in this app lets you add/edit/remove devices without hand-editing YAML for
 anything that isn't a credential.
 
@@ -134,8 +137,10 @@ for exactly how it was verified here), then flip `isActive: true`.
   vault reference ID in the monitoring configuration, and its device-management code is
   written to never read or write the credential fields at all.
 - **SSH host keys** are trust-on-first-use, then pinned - a `known_hosts` file would be
-  extension state, which the design forbids, so the first-observed fingerprint is recorded and
-  surfaces in the app for approval instead.
+  extension state, which the design forbids. The observed fingerprint is written to Grail on
+  every capture (`ncm.host.key.fingerprint`), but there is no in-app review queue for it yet;
+  pinning it today means independently obtaining the fingerprint (e.g. `ssh-keyscan`) and
+  entering it on the Manage tab, with policy set to `pinned`.
 - **Uploading a new extension package is not a feature of this app**, and not an oversight:
   AppEngine functions cap request/response payload at 5 MB each way, and the collector's
   package is several MB - it does not fit through that boundary regardless of design choices.
@@ -160,9 +165,10 @@ Vault entries one at a time through Settings doesn't work.
 
 The local script is the more conservative choice and keeps the app's "never sees a credential"
 guarantee airtight, but requires giving every admin who onboards devices `dtctl`/CLI access -
-not always realistic. The in-app page trades that guarantee, narrowly and visibly, for
-letting any admin with browser access do the same thing. Pick whichever matches how your
-organization actually operates; nothing about using one forecloses using the other later.
+not always realistic, and it only creates entries (no rotation). The in-app page trades that
+guarantee, narrowly and visibly, for letting any admin with browser access create *or rotate*
+credentials without CLI access. Pick whichever matches how your organization actually operates;
+nothing about using one forecloses using the other later.
 
 ### Bulk Credentials page (`ncmCredentials.function.ts`)
 
@@ -217,8 +223,16 @@ A few things worth knowing about rotation specifically:
   depend on syslog being wired up, which often isn't true for exactly the customers who need
   this app most.
 - Cisco enable/privileged-mode credentials assume a `privilege 15` service account rather than
-  a second secret; this is a documented onboarding requirement, not a schema limitation, and
-  has not been tested against a real device that needs `enable`.
+  a second secret; this is a documented onboarding requirement, not a schema limitation
+  (the schema already has an `enableSecretVaultId` field for it - the collector code just
+  doesn't read it yet), and has not been tested against a real device that needs `enable`.
+- Revert detection is computed (`versionPeriods`'s `reverted` field: a config that changed away
+  and came back within its observed span) but not yet surfaced anywhere in the UI - it's
+  discarded after the query runs. The Changes page shows every change; it doesn't yet
+  distinguish a revert from a forward change.
+- SSH host-key fingerprints are captured on every run (`ncm.host.key.fingerprint`) but there is
+  no in-app queue to review and one-click-approve an observed value yet. Pinning a fingerprint
+  today means obtaining it independently and entering it on the Manage tab.
 
 ## Available Scripts
 
@@ -242,6 +256,10 @@ Uninstalls the app from the specified environment.
 
 Generates a new serverless function in the `api` folder.
 
+### `npm run create:action`
+
+Generates a new action in the app.
+
 ### `npm run update`
 
 Updates `@dynatrace-sdk`/`@dynatrace` packages and applies automatic migrations.
@@ -249,6 +267,15 @@ Updates `@dynatrace-sdk`/`@dynatrace` packages and applies automatic migrations.
 ### `npm run lint`
 
 Runs ESLint.
+
+### `npm run info`
+
+Outputs App Toolkit and environment information - useful for confirming which tenant/version
+`dt-app` thinks it's pointed at.
+
+### `npm run help`
+
+Outputs `dt-app` CLI help.
 
 ## Learn more
 

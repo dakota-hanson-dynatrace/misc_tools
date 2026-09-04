@@ -202,7 +202,7 @@
         },
         "fingerprint": {
           "displayName": "Expected fingerprint",
-          "description": "SHA256:... form, as printed by `ssh-keyscan -t rsa,ecdsa,ed25519 <host> | ssh-keygen -lf -`. Leave blank under trust-on-first-use and approve the observed value in the app.",
+          "description": "SHA256:... form, as printed by `ssh-keyscan -t rsa,ecdsa,ed25519 <host> | ssh-keygen -lf -`. Under trust-on-first-use this can be left blank initially; there is no in-app review of the observed value yet, so pin it here once you have it if you want mismatches rejected going forward.",
           "type": "text",
           "nullable": true,
           "constraints": [

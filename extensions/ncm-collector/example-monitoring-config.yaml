@@ -40,10 +40,11 @@ value:
         use_global_credentials: true
         host_key:
           # trust_on_first_use records the fingerprint on first successful
-          # connection; approve it in the app's Manage tab, after which a
-          # mismatch is rejected rather than silently trusted. Use `pinned`
-          # with an explicit `fingerprint:` if you already have it (e.g. from
-          # `ssh-keyscan -t rsa,ecdsa,ed25519 <host> | ssh-keygen -lf -`).
+          # connection, but there's no in-app review of that observed value
+          # yet. To actually pin it, switch to `pinned` with an explicit
+          # `fingerprint:` you obtained independently (e.g. from
+          # `ssh-keyscan -t rsa,ecdsa,ed25519 <host> | ssh-keygen -lf -`),
+          # after which a mismatch is rejected rather than silently trusted.
           policy: trust_on_first_use
       - enabled: true
         hostname: 10.0.0.2

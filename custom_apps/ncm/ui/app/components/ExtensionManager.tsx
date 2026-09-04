@@ -4,6 +4,7 @@ import { Flex, Surface } from '@dynatrace/strato-components/layouts';
 import { Heading, Paragraph, Text, Code } from '@dynatrace/strato-components/typography';
 import { Button } from '@dynatrace/strato-components/buttons';
 import Colors from '@dynatrace/strato-design-tokens/colors';
+import { VaultEntryPicker } from './VaultEntryPicker';
 
 // Extension version activation + device metadata management, called from the
 // Initial Setup page. Devices can point at the configuration's shared
@@ -15,15 +16,15 @@ import Colors from '@dynatrace/strato-design-tokens/colors';
 // able to do (upload a new package, read or write a plaintext credential)
 // and why - both are hard platform/security limits, not missing polish.
 
-interface HostKey {
+export interface HostKey {
   policy: 'pinned' | 'trust_on_first_use' | 'accept_any';
   fingerprint?: string | null;
 }
-interface DeviceCredentialRef {
+export interface DeviceCredentialRef {
   useCredentialVault: true;
   credentialVaultId: string;
 }
-interface Device {
+export interface Device {
   enabled: boolean;
   hostname: string;
   port: number;
@@ -38,12 +39,12 @@ interface ExtensionVersion {
   version: string;
   active?: boolean;
 }
-interface ConfigSummary {
+export interface ConfigSummary {
   objectId: string;
   scope: string;
   deviceCount: number;
 }
-interface ExtensionResponse {
+export interface ExtensionResponse {
   ok: boolean;
   message?: string;
   versions?: ExtensionVersion[];
@@ -52,7 +53,7 @@ interface ExtensionResponse {
   configId?: string;
 }
 
-const VENDORS: { value: string; label: string }[] = [
+export const VENDORS: { value: string; label: string }[] = [
   { value: 'cisco_ios', label: 'Cisco IOS / IOS-XE' },
   { value: 'cisco_nxos', label: 'Cisco NX-OS' },
   { value: 'arista_eos', label: 'Arista EOS' },
@@ -60,13 +61,13 @@ const VENDORS: { value: string; label: string }[] = [
   { value: 'panos', label: 'Palo Alto PAN-OS' },
   { value: 'fortios', label: 'Fortinet FortiOS' },
 ];
-const HOST_KEY_POLICIES: { value: HostKey['policy']; label: string }[] = [
+export const HOST_KEY_POLICIES: { value: HostKey['policy']; label: string }[] = [
   { value: 'pinned', label: 'Pinned - reject anything else' },
   { value: 'trust_on_first_use', label: 'Trust on first use, then pin' },
   { value: 'accept_any', label: 'Accept any key (insecure)' },
 ];
 
-const blankDevice = (): Device => ({
+export const blankDevice = (): Device => ({
   enabled: true,
   hostname: '',
   port: 22,
@@ -77,12 +78,12 @@ const blankDevice = (): Device => ({
   host_key: { policy: 'trust_on_first_use', fingerprint: '' },
 });
 
-async function callExtension(body: Record<string, unknown>): Promise<ExtensionResponse> {
+export async function callExtension(body: Record<string, unknown>): Promise<ExtensionResponse> {
   const res = await functions.call('ncmExtension', { data: body });
   return res.json();
 }
 
-const inputStyle: React.CSSProperties = {
+export const inputStyle: React.CSSProperties = {
   background: Colors.Background.Base.Default,
   border: `1px solid ${Colors.Border.Neutral.Default}`,
   borderRadius: 4,
@@ -270,10 +271,12 @@ export const ExtensionManager = () => {
                     <option value="vault">This device's own vault entry</option>
                   </select>
                   {!useShared && (
-                    <input style={{ ...inputStyle, width: 260 }} placeholder="CREDENTIALS_VAULT-... (from Settings, or bulk-provision-vault.ts)"
-                      value={d.credentials?.credentialVaultId ?? ''}
-                      onChange={(e) => updateDevice(i, { credentials: { useCredentialVault: true, credentialVaultId: e.target.value } })}
-                    />
+                    <div style={{ width: 260 }}>
+                      <VaultEntryPicker
+                        value={d.credentials?.credentialVaultId ?? ''}
+                        onChange={(id) => updateDevice(i, { credentials: { useCredentialVault: true, credentialVaultId: id } })}
+                      />
+                    </div>
                   )}
                 </Flex>
               </Flex>

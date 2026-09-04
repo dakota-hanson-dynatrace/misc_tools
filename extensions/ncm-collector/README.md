@@ -16,7 +16,8 @@ Holding no state was a hard design requirement, not a default. Consequences that
 it:
 - No `known_hosts` file - SSH host-key trust starts as trust-on-first-use, then the observed
   fingerprint gets pinned in the *monitoring configuration* (platform-held config, not
-  extension state) once approved in the app's Manage tab.
+  extension state) once you enter it on the app's Manage tab. There is no in-app review queue
+  for the observed value yet - obtain it independently (e.g. `ssh-keyscan`) and set it there.
 - No local retry/backoff state across runs - a failed capture is just a `capture.status` the
   app surfaces, not something the extension remembers and reacts to.
 - Restarting the ActiveGate mid-schedule loses nothing meaningful; the next scheduled run picks
@@ -100,9 +101,10 @@ constructs, logs, or has any special handling for a credential; it just reads wh
 device list without ever seeing a credential: it only ever edits `pythonRemote.devices`, never
 `global_credentials`.
 
-Cisco enable/privileged-mode secrets are a known gap in the current schema - handled today by
-requiring a `privilege 15` service account instead of a second secret. See `AGENTS.md` if a
-real deployment needs that closed.
+Cisco enable/privileged-mode secrets are a known gap in the current *code*, not the schema -
+`enableSecretVaultId` already exists as a schema field (gated on `enable_required`), nothing
+reads it yet. Handled today by requiring a `privilege 15` service account instead. See
+`AGENTS.md` if a real deployment needs the second-secret path closed.
 
 ## Structure
 
@@ -113,6 +115,7 @@ real deployment needs that closed.
 | `workflows/ncm-promote-schedule.yaml` | Optional but strongly recommended: schedules the app's `ncmPromote` function so a real capture never sits un-promoted waiting for someone to run it by hand. Ships with its trigger disabled - verify against your own tenant, then flip `isActive: true`. |
 | `example-monitoring-config.yaml` | Template device inventory - copy and fill in |
 | `setup.py` | Python packaging metadata |
+| `ruff.toml` | Lint config |
 | `activation.json` | Local-simulation-only scaffold for `dt-sdk run`; not used by a real deployment. Its `password` field is a `{{myPassword}}` template reference, not a real value - never paste a real credential directly into this file. |
 | `secrets.json` (gitignored) | Supplies the real value for `activation.json`'s `{{myPassword}}` placeholder during local simulation only. This is the one file in this tree that could ever hold something real - keep it that way. |
 

@@ -1,7 +1,8 @@
 import React from 'react';
 import { DataTable } from '@dynatrace/strato-components/tables';
 import { Flex } from '@dynatrace/strato-components/layouts';
-import { Heading, Paragraph } from '@dynatrace/strato-components/typography';
+import { Heading, Paragraph, Text } from '@dynatrace/strato-components/typography';
+import { Button } from '@dynatrace/strato-components/buttons';
 import { SingleValue } from '@dynatrace/strato-components-preview/charts';
 import Colors from '@dynatrace/strato-design-tokens/colors';
 import { useNavigate, useLocation } from 'react-router-dom';
@@ -9,9 +10,10 @@ import { monitoredDevices, monitoredAddresses, backupState } from '../queries';
 import { useNcmQuery, fmtTime, VENDOR_LABEL } from '../hooks/useNcm';
 import { QueryError } from '../components/QueryError';
 import { CoverageDot } from '../components/CoverageDot';
+import { AutoAddDevice } from '../components/AutoAddDevice';
 import {
   computeCoverage, STATE_LABEL, FRESHNESS_WINDOW_HOURS,
-  type MonitoredDevice, type MonitoredAddress, type BackupState, type CoverageState,
+  type MonitoredDevice, type MonitoredAddress, type BackupState, type CoverageState, type CoverageRow,
 } from '../utils/coverage';
 
 // Same fix as FleetSummary: Container is the tile level in the surface
@@ -39,6 +41,8 @@ export const Coverage = () => {
   const mon = useNcmQuery<MonitoredDevice>(monitoredDevices());
   const addr = useNcmQuery<MonitoredAddress>(monitoredAddresses());
   const back = useNcmQuery<BackupState>(backupState());
+  const [addTarget, setAddTarget] = React.useState<CoverageRow | null>(null);
+  const [addedMessage, setAddedMessage] = React.useState<string | null>(null);
 
   const isLoading = mon.isLoading || addr.isLoading || back.isLoading;
   const error = mon.error ?? addr.error ?? back.error;
@@ -92,6 +96,23 @@ export const Coverage = () => {
           return <>{all.length ? all.join(' · ') : '-'}</>;
         },
       },
+      {
+        id: 'actions', header: '', accessor: 'state', width: 90,
+        cell: ({ value, rowData }: { value: unknown; rowData: CoverageRow }) => (
+          <>
+            {value === 'never' && (
+              <Button
+                onClick={(e: React.MouseEvent) => {
+                  e.stopPropagation();
+                  setAddTarget(rowData);
+                }}
+              >
+                Add
+              </Button>
+            )}
+          </>
+        ),
+      },
     ],
     []
   );
@@ -130,6 +151,8 @@ export const Coverage = () => {
         discrepancy worth fixing.
       </Paragraph>
 
+      {addedMessage && <Text style={{ color: Colors.Text.Success.Default }}>{addedMessage}</Text>}
+
       <DataTable data={rows} columns={columns} sortable fullWidth loading={isLoading} interactiveRows
         onActiveRowChange={(activeRow) => {
           if (activeRow === null) return;
@@ -141,6 +164,19 @@ export const Coverage = () => {
           No SNMP-monitored network devices found, and nothing backed up yet.
         </DataTable.EmptyState>
       </DataTable>
+
+      {addTarget && (
+        <AutoAddDevice
+          row={addTarget}
+          onClose={() => setAddTarget(null)}
+          onAdded={() => {
+            setAddTarget(null);
+            setAddedMessage(
+              'Added to monitoring. It will show as backed up here after the next scheduled capture.'
+            );
+          }}
+        />
+      )}
     </Flex>
   );
 };

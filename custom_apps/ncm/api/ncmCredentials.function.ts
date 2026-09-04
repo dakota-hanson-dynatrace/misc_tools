@@ -22,7 +22,7 @@ import { httpClient } from '@dynatrace-sdk/http-client';
 //     read, forwarded to the Credential Vault API, and discarded.
 //   - Never echoes a password back in a response, including on failure.
 //
-// Two operations:
+// Three operations:
 //   bulkCreate - makes NEW vault entries (POST /entries).
 //   bulkRotate - updates an EXISTING entry's password IN PLACE (PUT
 //     /entries/{id}), so a device's credentialVaultId reference never has to
@@ -30,6 +30,11 @@ import { httpClient } from '@dynatrace-sdk/http-client';
 //     long-term-management answer: rotation is "update the vault entry,"
 //     never "create a new entry and go edit every device that referenced the
 //     old one." See the app README's "Credential rotation" section.
+//   listEntries - read-only, lets device-management UI (Manage tab, Coverage's
+//     Auto add) offer a picker of existing vault entries instead of requiring
+//     a hand-pasted id. Filtered server-side to the type/scope this app's
+//     own entries use, and - like every other read here - never returns a
+//     username or password.
 
 const VAULT_BASE = '/platform/credential-vault/v1/entries';
 const TIME_BUDGET_MS = 90_000; // hard cap is 120s; leave margin
@@ -53,8 +58,13 @@ interface RowResult {
 }
 
 interface CredentialsRequest {
-  action: 'bulkCreate' | 'bulkRotate';
+  action: 'bulkCreate' | 'bulkRotate' | 'listEntries';
   rows?: (CreateRow | RotateRow)[];
+}
+
+interface VaultEntrySummary {
+  id: string;
+  name: string;
 }
 
 interface CredentialsResponse {
@@ -63,6 +73,7 @@ interface CredentialsResponse {
   results?: RowResult[];
   /** Rows not yet attempted this invocation - resend exactly this array to continue. */
   remainingRows?: (CreateRow | RotateRow)[];
+  entries?: VaultEntrySummary[];
 }
 
 const msg = (e: unknown): string => (e instanceof Error ? e.message : String(e));
@@ -125,6 +136,26 @@ async function getEntryMeta(id: string): Promise<VaultEntryMeta> {
   return (await res.body('json')) as VaultEntryMeta;
 }
 
+/**
+ * ponytail: single page, up to the API's max page-size (500). Add page-key
+ * pagination only if a tenant's vault actually exceeds 500 USERNAME_PASSWORD /
+ * EXTENSION_AUTHENTICATION entries - not before.
+ *
+ * Filtered to the same type+scope bulkCreate provisions with, so this only
+ * ever surfaces credentials meant for device auth, not synthetic/AWS/other
+ * unrelated vault entries. Response never contains user/password - confirmed
+ * against the real API schema, same as getEntryMeta.
+ */
+async function listEntries(): Promise<VaultEntrySummary[]> {
+  const res = await httpClient.send({
+    // eslint-disable-next-line noSecrets/no-secrets -- query string, not a credential
+    url: `${VAULT_BASE}?type=USERNAME_PASSWORD&scope=EXTENSION_AUTHENTICATION&page-size=500`,
+    method: 'GET',
+  });
+  const body = (await res.body('json')) as { credentials: { id: string; name: string }[] };
+  return body.credentials.map((c) => ({ id: c.id, name: c.name }));
+}
+
 /** PUT replaces the whole entry and needs entries:admin - a more privileged scope than create's entries:write. */
 async function rotateEntry(row: RotateRow): Promise<void> {
   const meta = await getEntryMeta(row.credentialVaultId);
@@ -150,6 +181,10 @@ async function rotateEntry(row: RotateRow): Promise<void> {
 export default async function (request: CredentialsRequest): Promise<CredentialsResponse> {
   const startedAt = Date.now();
   try {
+    if (request.action === 'listEntries') {
+      return { ok: true, entries: await listEntries() };
+    }
+
     const rows = request.rows ?? [];
     const results: RowResult[] = [];
     let i = 0;
