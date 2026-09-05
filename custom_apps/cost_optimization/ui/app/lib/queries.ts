@@ -11,19 +11,50 @@ const CLOUD_WINDOW = 'from: -7d';
 // Hosts
 // ---------------------------------------------------------------------------
 
-export const hostUsage = () => `
+/**
+ * Raw (unreduced) per-host CPU/memory series - each record carries the full
+ * `interval`/`timeframe`/value-array shape DQL returns, which lib/hostSizing.ts
+ * converts into chart datapoints AND computes a true client-side percentile
+ * from (sorting the actual array), rather than approximating via a second
+ * DQL aggregation query. One query serves both the Hosts list (percentile per
+ * host) and the host detail drawer's chart (filtered to one host by id,
+ * client-side - only 5 hosts, no need for a second per-host query).
+ */
+export const hostRawSeries = () => `
 timeseries {
   cpu = avg(dt.host.cpu.usage),
-  mem = avg(dt.host.memory.usage),
-  disk = avg(dt.host.disk.used.percent)
+  mem = avg(dt.host.memory.usage)
 }, by: {dt.entity.host}, ${HOST_WINDOW}
-| fieldsAdd
-    host_name = getNodeName(dt.entity.host),
-    cpu_avg = round(arrayAvg(cpu), decimals: 1),
-    mem_avg = round(arrayAvg(mem), decimals: 1),
-    disk_avg = round(arrayAvg(disk), decimals: 1)
-| fields dt.entity.host, host_name, cpu_avg, mem_avg, disk_avg
-| sort cpu_avg desc
+`;
+
+/** Host capacity (for translating a usage % into an absolute recommended size). */
+export const hostCapacity = () => `
+smartscapeNodes "HOST"
+| fields id, name, cores, memory
+`;
+
+/**
+ * Raw per-host-per-disk used/avail byte series. A host can have several
+ * disks (mounts) - grouping by both dt.entity.host and dt.entity.disk keeps
+ * each disk's usage independent rather than averaged across a host's disks.
+ */
+export const hostDiskRawSeries = () => `
+timeseries {
+  used = avg(dt.host.disk.used),
+  avail = avg(dt.host.disk.avail)
+}, by: {dt.entity.host, dt.entity.disk}, ${HOST_WINDOW}
+`;
+
+/**
+ * Mount-point name per disk id, for display only. NOT used to join disk->host
+ * - smartscapeNodes "DISK"'s host.name field is null for many disks in this
+ * environment; the host<->disk relationship instead comes from
+ * hostDiskRawSeries's own {dt.entity.host, dt.entity.disk} grouping, which is
+ * populated directly from the metric data and reliable.
+ */
+export const diskInventory = () => `
+smartscapeNodes "DISK"
+| fields id, name
 `;
 
 // ---------------------------------------------------------------------------

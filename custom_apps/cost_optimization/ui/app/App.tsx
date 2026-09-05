@@ -1,10 +1,12 @@
 import React from 'react';
-import { Routes, Route, NavLink } from 'react-router-dom';
+import { Routes, Route, NavLink, useLocation, useNavigate, type Location } from 'react-router-dom';
 import { Flex } from '@dynatrace/strato-components/layouts';
 import Colors from '@dynatrace/strato-design-tokens/colors';
 import { Hosts } from './pages/Hosts';
 import { Kubernetes } from './pages/Kubernetes';
 import { Cloud } from './pages/Cloud';
+import { HostDetail } from './pages/HostDetail';
+import { SlideOverDrawer } from './components/SlideOverDrawer';
 
 const NAV = [
   { to: '/', label: 'Hosts', end: true },
@@ -37,13 +39,45 @@ const Nav = () => (
   </Flex>
 );
 
-export const App = () => (
-  <Flex flexDirection="column">
-    <Nav />
-    <Routes>
-      <Route path="/" element={<Hosts />} />
-      <Route path="/kubernetes" element={<Kubernetes />} />
-      <Route path="/cloud" element={<Cloud />} />
-    </Routes>
-  </Flex>
-);
+/**
+ * Host detail renders as a right-side drawer over whichever page was
+ * showing, using react-router's "background location" pattern (same as the
+ * ncm app): the Hosts list navigates to /host/:hostId with
+ * `state: { backgroundLocation: location }`, so the URL changes (shareable,
+ * back-button-friendly) while the ROUTES underneath keep showing the page the
+ * user was actually on.
+ *
+ * A bookmarked/direct link to /host/:hostId (no backgroundLocation in state)
+ * falls through to the first <Routes> block instead, rendering as an
+ * ordinary full page - there's nothing to show behind a drawer in that case.
+ */
+export const App = () => {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const backgroundLocation = (location.state as { backgroundLocation?: Location } | null)?.backgroundLocation;
+
+  return (
+    <Flex flexDirection="column">
+      <Nav />
+      <Routes location={backgroundLocation ?? location}>
+        <Route path="/" element={<Hosts />} />
+        <Route path="/kubernetes" element={<Kubernetes />} />
+        <Route path="/cloud" element={<Cloud />} />
+        <Route path="/host/:hostId" element={<HostDetail />} />
+      </Routes>
+
+      {backgroundLocation && (
+        <Routes>
+          <Route
+            path="/host/:hostId"
+            element={
+              <SlideOverDrawer open onClose={() => navigate(-1)}>
+                <HostDetail />
+              </SlideOverDrawer>
+            }
+          />
+        </Routes>
+      )}
+    </Flex>
+  );
+};
