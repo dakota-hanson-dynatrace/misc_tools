@@ -6,6 +6,8 @@ import { Hosts } from './pages/Hosts';
 import { Kubernetes } from './pages/Kubernetes';
 import { Cloud } from './pages/Cloud';
 import { HostDetail } from './pages/HostDetail';
+import { WorkloadDetail } from './pages/WorkloadDetail';
+import { CloudInstanceDetail } from './pages/CloudInstanceDetail';
 import { SlideOverDrawer } from './components/SlideOverDrawer';
 
 const NAV = [
@@ -40,15 +42,15 @@ const Nav = () => (
 );
 
 /**
- * Host detail renders as a right-side drawer over whichever page was
- * showing, using react-router's "background location" pattern (same as the
- * ncm app): the Hosts list navigates to /host/:hostId with
- * `state: { backgroundLocation: location }`, so the URL changes (shareable,
- * back-button-friendly) while the ROUTES underneath keep showing the page the
- * user was actually on.
+ * Host/workload/cloud-instance detail all render as a right-side drawer over
+ * whichever page was showing, using react-router's "background location"
+ * pattern (same as the ncm app): each list navigates to its detail route
+ * with `state: { backgroundLocation: location }`, so the URL changes
+ * (shareable, back-button-friendly) while the ROUTES underneath keep showing
+ * the page the user was actually on.
  *
- * A bookmarked/direct link to /host/:hostId (no backgroundLocation in state)
- * falls through to the first <Routes> block instead, rendering as an
+ * A bookmarked/direct link to a detail route (no backgroundLocation in
+ * state) falls through to the first <Routes> block instead, rendering as an
  * ordinary full page - there's nothing to show behind a drawer in that case.
  */
 export const App = () => {
@@ -64,6 +66,8 @@ export const App = () => {
         <Route path="/kubernetes" element={<Kubernetes />} />
         <Route path="/cloud" element={<Cloud />} />
         <Route path="/host/:hostId" element={<HostDetail />} />
+        <Route path="/workload/:key" element={<WorkloadDetail />} />
+        <Route path="/cloud/:key" element={<CloudInstanceDetail />} />
       </Routes>
 
       {backgroundLocation && (
@@ -73,6 +77,22 @@ export const App = () => {
             element={
               <SlideOverDrawer open onClose={() => navigate(-1)}>
                 <HostDetail />
+              </SlideOverDrawer>
+            }
+          />
+          <Route
+            path="/workload/:key"
+            element={
+              <SlideOverDrawer open onClose={() => navigate(-1)}>
+                <WorkloadDetail />
+              </SlideOverDrawer>
+            }
+          />
+          <Route
+            path="/cloud/:key"
+            element={
+              <SlideOverDrawer open onClose={() => navigate(-1)}>
+                <CloudInstanceDetail />
               </SlideOverDrawer>
             }
           />

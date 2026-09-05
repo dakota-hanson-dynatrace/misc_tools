@@ -13,7 +13,7 @@ const CLOUD_WINDOW = 'from: -7d';
 
 /**
  * Raw (unreduced) per-host CPU/memory series - each record carries the full
- * `interval`/`timeframe`/value-array shape DQL returns, which lib/hostSizing.ts
+ * `interval`/`timeframe`/value-array shape DQL returns, which lib/sizing.ts
  * converts into chart datapoints AND computes a true client-side percentile
  * from (sorting the actual array), rather than approximating via a second
  * DQL aggregation query. One query serves both the Hosts list (percentile per
@@ -78,26 +78,24 @@ timeseries {
 `;
 
 /**
- * Per-container CPU/memory request vs. actual usage - the rightsizing table.
- * cpu_p90/cpu_req are millicores, mem_p100/mem_req are bytes (matches the raw
- * `dt.kubernetes.container.*` units, no conversion needed for the kubectl
- * command builder in lib/kubectl.ts).
+ * Raw (unreduced) per-container CPU/memory usage-vs-request series - the
+ * rightsizing table's source data. cpu_usage/cpu_req are millicores,
+ * mem_usage/mem_req are bytes (matches the raw `dt.kubernetes.container.*`
+ * units, no conversion needed for the kubectl command builder in
+ * lib/kubectl.ts). Same "keep the raw array, compute percentile client-side"
+ * approach as lib/sizing.ts uses for hosts - one query serves both the list
+ * (percentile per container) and the workload detail drawer's chart.
  */
-export const k8sWorkloadSlack = () => `
+export const k8sWorkloadRawSeries = () => `
 timeseries {
-  cpu_p90 = percentile(dt.kubernetes.container.cpu_usage, 90, rollup: "avg"),
+  cpu_usage = avg(dt.kubernetes.container.cpu_usage),
   cpu_req = avg(dt.kubernetes.container.requests_cpu),
-  mem_p100 = percentile(dt.kubernetes.container.memory_working_set, 100, rollup: "avg"),
+  mem_usage = avg(dt.kubernetes.container.memory_working_set),
   mem_req = avg(dt.kubernetes.container.requests_memory)
 }, by: {k8s.workload.name, k8s.namespace.name, k8s.container.name}, ${K8S_WINDOW}
-| fieldsAdd
-    cpu_p90_avg = arrayAvg(cpu_p90),
-    cpu_req_avg = arrayAvg(cpu_req),
-    mem_p100_avg = arrayAvg(mem_p100),
-    mem_req_avg = arrayAvg(mem_req)
-| filter isNotNull(cpu_req_avg) and cpu_req_avg > 0
+| filter isNotNull(arrayAvg(cpu_req)) and arrayAvg(cpu_req) > 0
 | fields k8s.workload.name, k8s.namespace.name, k8s.container.name,
-    cpu_p90_avg, cpu_req_avg, mem_p100_avg, mem_req_avg
+    interval, timeframe, cpu_usage, cpu_req, mem_usage, mem_req
 `;
 
 // ---------------------------------------------------------------------------
@@ -105,25 +103,32 @@ timeseries {
 // cloud entities today so these render an empty table there, which is correct.
 // ---------------------------------------------------------------------------
 
+// Raw arrays kept (not reduced to a single avg) so the same query serves
+// both the Compute utilization list (percentile computed client-side, see
+// lib/sizing.ts) and the instance detail drawer's chart.
 export const awsEc2Cpu = () => `
 timeseries cpu = avg(cloud.aws.ec2.CPUUtilization.By.InstanceId),
   by: {dt.smartscape_source.id}, ${CLOUD_WINDOW}
-| fieldsAdd name = getNodeName(dt.smartscape_source.id), cpu_avg = round(arrayAvg(cpu), decimals: 1)
-| fields dt.smartscape_source.id, name, cpu_avg
+| fieldsAdd name = getNodeName(dt.smartscape_source.id)
+| fields dt.smartscape_source.id, name, interval, timeframe, cpu
 `;
 
 export const azureVmCpu = () => `
 timeseries cpu = avg(dt.cloud.azure.vm.cpu_usage),
   by: {dt.smartscape_source.id}, ${CLOUD_WINDOW}
-| fieldsAdd name = getNodeName(dt.smartscape_source.id), cpu_avg = round(arrayAvg(cpu), decimals: 1)
-| fields dt.smartscape_source.id, name, cpu_avg
+| fieldsAdd name = getNodeName(dt.smartscape_source.id)
+| fields dt.smartscape_source.id, name, interval, timeframe, cpu
 `;
 
+// GCP's utilization metric is a 0-1 ratio, unlike AWS/Azure's 0-100 percent.
+// DQL rejects arithmetic on a timeseries aggregation directly ("has to be a
+// metric-based timeseries aggregation"), so the *100 scaling happens
+// client-side in Cloud.tsx instead, applied to the raw values.
 export const gcpComputeCpu = () => `
 timeseries cpu = avg(cloud.gcp.gce_instance.compute_googleapis_com.instance.cpu.utilization),
   by: {dt.smartscape_source.id}, ${CLOUD_WINDOW}
-| fieldsAdd name = getNodeName(dt.smartscape_source.id), cpu_avg = round(arrayAvg(cpu) * 100, decimals: 1)
-| fields dt.smartscape_source.id, name, cpu_avg
+| fieldsAdd name = getNodeName(dt.smartscape_source.id)
+| fields dt.smartscape_source.id, name, interval, timeframe, cpu
 `;
 
 /**

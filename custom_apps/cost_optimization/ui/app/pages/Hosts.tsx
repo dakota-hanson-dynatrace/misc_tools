@@ -13,7 +13,7 @@ import {
   diskRecommendation,
   STATUS_LABEL,
   type SizingStatus,
-} from '../lib/hostSizing';
+} from '../lib/sizing';
 import { StatTiles } from '../components/StatTiles';
 import { UsageCell } from '../components/UsageCell';
 

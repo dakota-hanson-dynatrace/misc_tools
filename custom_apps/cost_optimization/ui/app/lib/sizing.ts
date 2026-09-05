@@ -51,6 +51,20 @@ export function toTimeseries(
 
 export const seriesValues = (ts: Timeseries): number[] => ts.datapoints.map((d) => d.value);
 
+export const avgOf = (values: number[]): number => (values.length ? values.reduce((a, b) => a + b, 0) / values.length : 0);
+
+/**
+ * Plain usage% -> status, for cases with no absolute capacity to scale
+ * against (e.g. a cloud VM whose vCPU count this app doesn't know) - unlike
+ * cpuRecommendation/memRecommendation, this can't also produce a "recommended
+ * size", only the same three-state verdict.
+ */
+export function statusFromUsagePct(pct: number, downsizeBelow = 20, nearCapacityAbove = NEAR_CAPACITY_PCT): SizingStatus {
+  if (pct > nearCapacityAbove) return 'near-capacity';
+  if (pct < downsizeBelow) return 'downsize';
+  return 'right-sized';
+}
+
 function fmtGB(bytes: number): string {
   return `${(bytes / 1024 / 1024 / 1024).toFixed(1)} GB`;
 }

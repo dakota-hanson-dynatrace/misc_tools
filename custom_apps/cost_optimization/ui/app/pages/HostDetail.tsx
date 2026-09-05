@@ -16,7 +16,7 @@ import {
   diskRecommendation,
   STATUS_LABEL,
   type SizeRecommendation,
-} from '../lib/hostSizing';
+} from '../lib/sizing';
 import { CPU_COLOR, MEM_COLOR } from '../lib/colors';
 
 interface RawHostRecord {

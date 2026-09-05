@@ -1,3 +1,5 @@
+import { type SizingStatus } from './sizing';
+
 // Rightsizing math, mirrors the source dashboard's defaults: CPU sized off
 // p90 usage, memory sized off p100 (peak) usage, both with a 10% buffer.
 // ponytail: buffer/percentile are hardcoded, not a settings UI - the user
@@ -5,6 +7,21 @@
 const BUFFER = 1.1;
 const CPU_STEP_M = 5; // round CPU requests to the nearest 5m, like the source dashboard
 const MEM_STEP_MI = 1; // round memory requests to the nearest 1Mi
+const DOWNSIZE_RATIO = 0.7; // recommended request below 70% of current -> downsize candidate
+
+/**
+ * Same downsize / near-capacity / right-sized vocabulary as lib/sizing.ts's
+ * host recommendations, applied to a request vs. recommended-request
+ * comparison instead of a usage percentage: negative slack means the actual
+ * need already exceeds the current request (the container is running "near
+ * capacity" against its own request/limit), not that the underlying node
+ * is full.
+ */
+function statusFor(currentRequest: number, recommendedRequest: number, slack: number): SizingStatus {
+  if (slack < 0) return 'near-capacity';
+  if (recommendedRequest < currentRequest * DOWNSIZE_RATIO) return 'downsize';
+  return 'right-sized';
+}
 
 export interface WorkloadSlackRow {
   'k8s.workload.name': string;
@@ -20,9 +37,11 @@ export interface Recommendation {
   recommendedCpuRequestM: number;
   recommendedCpuLimitM: number;
   cpuSlackM: number;
+  cpuStatus: SizingStatus;
   recommendedMemRequestMi: number;
   recommendedMemLimitMi: number;
   memSlackMi: number;
+  memStatus: SizingStatus;
   cpuCommand: string;
   memCommand: string;
 }
@@ -41,6 +60,9 @@ export function computeRecommendation(row: WorkloadSlackRow): Recommendation {
   const recommendedMemRequestMi = roundUpTo(bytesToMi(row.mem_p100_avg) * BUFFER, MEM_STEP_MI);
   const recommendedMemLimitMi = recommendedMemRequestMi;
   const memSlackMi = bytesToMi(row.mem_req_avg) - recommendedMemRequestMi;
+
+  const cpuStatus = statusFor(row.cpu_req_avg, recommendedCpuRequestM, cpuSlackM);
+  const memStatus = statusFor(bytesToMi(row.mem_req_avg), recommendedMemRequestMi, memSlackMi);
 
   const workload = row['k8s.workload.name'];
   const container = row['k8s.container.name'];
@@ -62,9 +84,11 @@ export function computeRecommendation(row: WorkloadSlackRow): Recommendation {
     recommendedCpuRequestM,
     recommendedCpuLimitM,
     cpuSlackM,
+    cpuStatus,
     recommendedMemRequestMi,
     recommendedMemLimitMi,
     memSlackMi,
+    memStatus,
     cpuCommand,
     memCommand,
   };
