@@ -6,11 +6,9 @@ export const MEM_COLOR = 'hsl(150, 55%, 45%)'; // emerald
 export const DISK_COLOR = 'rgb(120, 145, 180)'; // slate-blue
 export const WARN_COLOR = 'hsl(28, 85%, 55%)'; // amber
 
-/** 0 = cool/low usage (slate-blue), 1 = hot/high usage (amber). */
+/** 0 = healthy (green), 0.5 = warning (yellow), 1 = critical (red). */
 export function heatColor(t: number): string {
   const clamped = Math.max(0, Math.min(1, t));
-  const r = Math.round(120 + clamped * 115);
-  const g = Math.round(145 + clamped * 5);
-  const b = Math.round(180 - clamped * 135);
-  return `rgb(${r}, ${g}, ${b})`;
+  const hue = 120 - clamped * 120; // 120 green -> 60 yellow -> 0 red
+  return `hsl(${hue}, 70%, 40%)`;
 }
