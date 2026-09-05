@@ -14,6 +14,12 @@ export interface SizeRecommendation {
   status: SizingStatus;
 }
 
+export const STATUS_LABEL: Record<SizingStatus, string> = {
+  downsize: 'Downsize candidate',
+  'near-capacity': 'Near capacity',
+  'right-sized': 'Right-sized',
+};
+
 /** True percentile of the raw value array (sorts and indexes - not an approximation). */
 export function percentileOf(values: number[], p: number): number {
   if (values.length === 0) return 0;

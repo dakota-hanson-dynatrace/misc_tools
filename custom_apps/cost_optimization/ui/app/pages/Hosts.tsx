@@ -5,7 +5,15 @@ import { Heading, Paragraph } from '@dynatrace/strato-components/typography';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { hostRawSeries, hostCapacity, hostDiskRawSeries } from '../lib/queries';
 import { useCostOptQuery, num } from '../hooks/useCostOpt';
-import { toTimeseries, seriesValues, cpuRecommendation, memRecommendation, diskRecommendation } from '../lib/hostSizing';
+import {
+  toTimeseries,
+  seriesValues,
+  cpuRecommendation,
+  memRecommendation,
+  diskRecommendation,
+  STATUS_LABEL,
+  type SizingStatus,
+} from '../lib/hostSizing';
 import { StatTiles } from '../components/StatTiles';
 import { UsageCell } from '../components/UsageCell';
 
@@ -37,6 +45,9 @@ interface HostRow {
   cpuPct: number;
   memPct: number;
   diskPct: number;
+  cpuStatus: SizingStatus;
+  memStatus: SizingStatus;
+  diskStatus: SizingStatus;
 }
 
 export const Hosts = () => {
@@ -73,21 +84,28 @@ export const Hosts = () => {
           const memBytes = num(cap?.memory);
           const cpuRec = cpuRecommendation(cores, seriesValues(toTimeseries(r, 'cpu', 'cpu')));
           const memRec = memRecommendation(memBytes, seriesValues(toTimeseries(r, 'mem', 'mem')));
-          const worstDiskPct = Math.max(0, ...diskRecs.filter((d) => d.hostId === hostId).map((d) => d.usagePct));
-          return { id: hostId, name: cap?.name ?? hostId, cpuPct: cpuRec.usagePct, memPct: memRec.usagePct, diskPct: worstDiskPct };
+          // Worst disk = highest usage %, not an average - a single nearly-full
+          // disk should surface here even if the host's other disks are idle.
+          const worstDisk = diskRecs
+            .filter((d) => d.hostId === hostId)
+            .sort((a, b) => b.usagePct - a.usagePct)[0];
+          return {
+            id: hostId,
+            name: cap?.name ?? hostId,
+            cpuPct: cpuRec.usagePct,
+            memPct: memRec.usagePct,
+            diskPct: worstDisk?.usagePct ?? 0,
+            cpuStatus: cpuRec.status,
+            memStatus: memRec.status,
+            diskStatus: worstDisk?.status ?? 'right-sized',
+          };
         })
         .sort((a, b) => b.cpuPct - a.cpuPct),
     [raw.rows, capacityById, diskRecs]
   );
 
-  const cpuDownsizeCount = raw.rows.filter((r) => {
-    const cap = capacityById.get(r['dt.entity.host']);
-    return cpuRecommendation(num(cap?.cores) || 1, seriesValues(toTimeseries(r, 'cpu', 'cpu'))).status === 'downsize';
-  }).length;
-  const memDownsizeCount = raw.rows.filter((r) => {
-    const cap = capacityById.get(r['dt.entity.host']);
-    return memRecommendation(num(cap?.memory), seriesValues(toTimeseries(r, 'mem', 'mem'))).status === 'downsize';
-  }).length;
+  const cpuDownsizeCount = rows.filter((r) => r.cpuStatus === 'downsize').length;
+  const memDownsizeCount = rows.filter((r) => r.memStatus === 'downsize').length;
   const disksNearCapacityCount = diskRecs.filter((d) => d.status === 'near-capacity').length;
 
   const avg = (key: keyof HostRow) => (rows.length ? rows.reduce((sum, r) => sum + Number(r[key]), 0) / rows.length : 0);
@@ -115,6 +133,27 @@ export const Hosts = () => {
         accessor: 'diskPct',
         width: 160,
         cell: ({ value }: { value: unknown }) => <UsageCell value={Number(value)} />,
+      },
+      {
+        id: 'cpuStatus',
+        header: 'CPU recommendation',
+        accessor: 'cpuStatus',
+        width: 170,
+        cell: ({ value }: { value: unknown }) => <>{STATUS_LABEL[value as SizingStatus]}</>,
+      },
+      {
+        id: 'memStatus',
+        header: 'Memory recommendation',
+        accessor: 'memStatus',
+        width: 180,
+        cell: ({ value }: { value: unknown }) => <>{STATUS_LABEL[value as SizingStatus]}</>,
+      },
+      {
+        id: 'diskStatus',
+        header: 'Disk recommendation',
+        accessor: 'diskStatus',
+        width: 170,
+        cell: ({ value }: { value: unknown }) => <>{STATUS_LABEL[value as SizingStatus]}</>,
       },
     ],
     []

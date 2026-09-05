@@ -14,6 +14,7 @@ import {
   cpuRecommendation,
   memRecommendation,
   diskRecommendation,
+  STATUS_LABEL,
   type SizeRecommendation,
 } from '../lib/hostSizing';
 import { CPU_COLOR, MEM_COLOR } from '../lib/colors';
@@ -43,12 +44,6 @@ interface DiskInfo {
   id: string;
   name: string;
 }
-
-const STATUS_LABEL: Record<SizeRecommendation['status'], string> = {
-  downsize: 'Downsize candidate',
-  'near-capacity': 'Near capacity',
-  'right-sized': 'Right-sized',
-};
 
 const RecommendationTile = ({
   label,
