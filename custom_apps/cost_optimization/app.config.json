@@ -1,0 +1,15 @@
+{
+  "$schema": "./.dt-app/app.config.schema.json",
+  "environmentUrl": "https://mfa20993.apps.dynatrace.com/",
+  "app": {
+    "name": "Cost Optimization",
+    "version": "0.0.1",
+    "description": "Cost-saving recommendations for hosts, Kubernetes, and cloud resources",
+    "id": "my.cost.optimization",
+    "scopes": [
+      { "name": "storage:metrics:read", "comment": "Read host, Kubernetes, and cloud provider timeseries metrics" },
+      { "name": "storage:buckets:read", "comment": "REQUIRED alongside storage:metrics:read - bucket-partitioned tables silently return 0 records without it" },
+      { "name": "storage:entities:read", "comment": "smartscapeNodes discovery (HOST, K8S_NODE, K8S_CLUSTER, AWS/Azure/GCP compute+disk) and getNodeName() resolution" }
+    ]
+  }
+}
