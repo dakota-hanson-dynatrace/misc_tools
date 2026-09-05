@@ -54,7 +54,10 @@ const RecommendationTile = ({
   chart: React.ReactNode;
   rec: SizeRecommendation;
 }) => (
-  <Surface padding={16} style={{ flex: '1 1 280px' }}>
+  // minWidth: 0 - a flex item's default min-width is its content's natural
+  // width, which without this override can force the tile (and the drawer)
+  // wider than the viewport instead of the chart/text shrinking to fit.
+  <Surface padding={16} style={{ flex: '1 1 280px', minWidth: 0 }}>
     <Flex flexDirection="column" gap={8}>
       <Flex justifyContent="space-between" alignItems="center">
         <Heading level={4}>{label}</Heading>

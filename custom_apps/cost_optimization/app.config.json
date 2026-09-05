@@ -3,7 +3,7 @@
   "environmentUrl": "https://mfa20993.apps.dynatrace.com/",
   "app": {
     "name": "Cost Optimization",
-    "version": "0.0.6",
+    "version": "0.0.7",
     "description": "Cost-saving recommendations for hosts, Kubernetes, and cloud resources",
     "id": "my.cost.optimization",
     "scopes": [

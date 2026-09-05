@@ -27,7 +27,11 @@ const RecommendationTile = ({
   recommendedLabel: string;
   command: string;
 }) => (
-  <Surface padding={16} style={{ flex: '1 1 320px' }}>
+  // minWidth: 0 on every flex-item in this chain (tile, command row, code
+  // block) - without it a flex item's default min-width is its content's
+  // natural width, so the long kubectl command refuses to shrink and forces
+  // the whole drawer wider than the viewport instead of truncating.
+  <Surface padding={16} style={{ flex: '1 1 320px', minWidth: 0 }}>
     <Flex flexDirection="column" gap={8}>
       <Flex justifyContent="space-between" alignItems="center">
         <Heading level={4}>{label}</Heading>
@@ -40,8 +44,10 @@ const RecommendationTile = ({
         <Text>Request: {currentLabel}</Text>
         <Text>Recommended: {recommendedLabel}</Text>
       </Flex>
-      <Flex alignItems="center" gap={8}>
-        <Code style={{ flex: 1, fontSize: 11, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{command}</Code>
+      <Flex alignItems="center" gap={8} style={{ minWidth: 0 }}>
+        <Code style={{ flex: 1, minWidth: 0, fontSize: 11, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {command}
+        </Code>
         <Button onClick={() => void navigator.clipboard.writeText(command)}>Copy</Button>
       </Flex>
     </Flex>

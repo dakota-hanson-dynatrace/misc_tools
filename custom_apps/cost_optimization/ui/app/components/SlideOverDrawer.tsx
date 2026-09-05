@@ -44,6 +44,12 @@ export const SlideOverDrawer = ({
         borderLeft: `1px solid ${Colors.Border.Neutral.Default}`,
         zIndex: 21,
         overflowY: 'auto',
+        // Backstop: the drawer has a fixed width, so content should never
+        // need to scroll sideways - if something inside miscalculates and
+        // overflows, clip it instead of forcing horizontal scroll on a
+        // fixed-position panel (see the flex minWidth fix in HostDetail.tsx
+        // / WorkloadDetail.tsx for the actual root cause this guards against).
+        overflowX: 'hidden',
         transform: open ? 'translateX(0)' : 'translateX(100%)',
         transition: 'transform 220ms ease',
         boxShadow: '-8px 0 24px rgba(0, 0, 0, 0.35)',
