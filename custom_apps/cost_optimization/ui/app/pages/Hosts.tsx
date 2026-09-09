@@ -110,49 +110,51 @@ export const Hosts = () => {
 
   const avg = (key: keyof HostRow) => (rows.length ? rows.reduce((sum, r) => sum + Number(r[key]), 0) / rows.length : 0);
 
+  // `fr` (not a plain px number) so columns stretch to fill fullWidth's
+  // available space instead of leaving it blank past the last column.
   const columns = React.useMemo(
     () => [
-      { id: 'name', header: 'Host', accessor: 'name', width: 260 },
+      { id: 'name', header: 'Host', accessor: 'name', width: '26fr' as const },
       {
         id: 'cpuPct',
         header: 'CPU (p90, 7d)',
         accessor: 'cpuPct',
-        width: 140,
+        width: '14fr' as const,
         cell: ({ value }: { value: unknown }) => <UsageCell value={Number(value)} />,
       },
       {
         id: 'memPct',
         header: 'Memory (p90, 7d)',
         accessor: 'memPct',
-        width: 150,
+        width: '15fr' as const,
         cell: ({ value }: { value: unknown }) => <UsageCell value={Number(value)} />,
       },
       {
         id: 'diskPct',
         header: 'Worst disk (p90, 7d)',
         accessor: 'diskPct',
-        width: 160,
+        width: '16fr' as const,
         cell: ({ value }: { value: unknown }) => <UsageCell value={Number(value)} />,
       },
       {
         id: 'cpuStatus',
         header: 'CPU recommendation',
         accessor: 'cpuStatus',
-        width: 170,
+        width: '17fr' as const,
         cell: ({ value }: { value: unknown }) => <>{STATUS_LABEL[value as SizingStatus]}</>,
       },
       {
         id: 'memStatus',
         header: 'Memory recommendation',
         accessor: 'memStatus',
-        width: 180,
+        width: '18fr' as const,
         cell: ({ value }: { value: unknown }) => <>{STATUS_LABEL[value as SizingStatus]}</>,
       },
       {
         id: 'diskStatus',
         header: 'Disk recommendation',
         accessor: 'diskStatus',
-        width: 170,
+        width: '17fr' as const,
         cell: ({ value }: { value: unknown }) => <>{STATUS_LABEL[value as SizingStatus]}</>,
       },
     ],

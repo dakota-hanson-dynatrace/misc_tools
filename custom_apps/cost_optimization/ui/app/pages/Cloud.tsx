@@ -81,22 +81,24 @@ export const Cloud = () => {
   const isLoadingVolumes = awsVolumes.isLoading || azureDisks.isLoading || gcpDisks.isLoading;
   const downsizeCount = rows.filter((r) => r.status === 'downsize').length;
 
+  // `fr` (not a plain px number) so columns stretch to fill fullWidth's
+  // available space instead of leaving it blank past the last column.
   const columns = React.useMemo(
     () => [
-      { id: 'provider', header: 'Provider', accessor: 'provider', width: 90 },
-      { id: 'name', header: 'Instance', accessor: 'name', width: 260 },
+      { id: 'provider', header: 'Provider', accessor: 'provider', width: '9fr' as const },
+      { id: 'name', header: 'Instance', accessor: 'name', width: '26fr' as const },
       {
         id: 'cpu',
         header: 'CPU (p90, 7d)',
         accessor: 'cpuPct',
-        width: 130,
+        width: '13fr' as const,
         cell: ({ value }: { value: unknown }) => <UsageCell value={Number(value)} />,
       },
       {
         id: 'recommendation',
         header: 'Recommendation',
         accessor: 'status',
-        width: 180,
+        width: '18fr' as const,
         cell: ({ value }: { value: unknown }) => <>{STATUS_LABEL[value as SizingStatus]}</>,
       },
     ],
@@ -141,10 +143,10 @@ export const Cloud = () => {
         fullWidth
         loading={isLoadingVolumes}
         columns={[
-          { id: 'provider', header: 'Provider', accessor: 'provider', width: 90 },
-          { id: 'name', header: 'Volume/disk', accessor: 'name', width: 220 },
-          { id: 'size', header: 'Size', accessor: 'size_gb', width: 100, cell: ({ value }: { value: unknown }) => <>{Number(value)} GB</> },
-          { id: 'location', header: 'Location', accessor: 'location', width: 160 },
+          { id: 'provider', header: 'Provider', accessor: 'provider', width: '9fr' as const },
+          { id: 'name', header: 'Volume/disk', accessor: 'name', width: '22fr' as const },
+          { id: 'size', header: 'Size', accessor: 'size_gb', width: '10fr' as const, cell: ({ value }: { value: unknown }) => <>{Number(value)} GB</> },
+          { id: 'location', header: 'Location', accessor: 'location', width: '16fr' as const },
         ]}
       >
         <DataTable.EmptyState>

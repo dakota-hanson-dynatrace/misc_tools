@@ -173,22 +173,24 @@ export const HostDetail = () => {
         data={diskEntries}
         fullWidth
         sortable
+        // `fr` (not a plain px number) so columns stretch to fill fullWidth's
+        // available space instead of leaving it blank past the last column.
         columns={[
-          { id: 'name', header: 'Mount', accessor: 'name', width: 280 },
+          { id: 'name', header: 'Mount', accessor: 'name', width: '28fr' as const },
           {
             id: 'usage',
             header: 'Usage (p90, 7d)',
             accessor: (r: (typeof diskEntries)[number]) => r.rec.usagePct,
-            width: 150,
+            width: '15fr' as const,
             cell: ({ value }: { value: unknown }) => <>{Number(value).toFixed(1)}%</>,
           },
-          { id: 'current', header: 'Current size', accessor: (r: (typeof diskEntries)[number]) => r.rec.currentLabel, width: 130 },
-          { id: 'recommended', header: 'Recommended size', accessor: (r: (typeof diskEntries)[number]) => r.rec.recommendedLabel, width: 150 },
+          { id: 'current', header: 'Current size', accessor: (r: (typeof diskEntries)[number]) => r.rec.currentLabel, width: '13fr' as const },
+          { id: 'recommended', header: 'Recommended size', accessor: (r: (typeof diskEntries)[number]) => r.rec.recommendedLabel, width: '15fr' as const },
           {
             id: 'status',
             header: 'Status',
             accessor: (r: (typeof diskEntries)[number]) => r.rec.status,
-            width: 160,
+            width: '16fr' as const,
             cell: ({ value }: { value: unknown }) => <>{STATUS_LABEL[value as SizeRecommendation['status']]}</>,
           },
         ]}
