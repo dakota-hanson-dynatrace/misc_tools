@@ -18,6 +18,7 @@ import {
   type SizeRecommendation,
 } from '../lib/sizing';
 import { CPU_COLOR, MEM_COLOR } from '../lib/colors';
+import { UsageCell } from '../components/UsageCell';
 
 interface RawHostRecord {
   'dt.entity.host': string;
@@ -182,7 +183,8 @@ export const HostDetail = () => {
             header: 'Usage (p90, 7d)',
             accessor: (r: (typeof diskEntries)[number]) => r.rec.usagePct,
             width: '15fr' as const,
-            cell: ({ value }: { value: unknown }) => <>{Number(value).toFixed(1)}%</>,
+            // invert={false}: low disk usage is safe (green), high is at risk (red).
+            cell: ({ value }: { value: unknown }) => <UsageCell value={Number(value)} invert={false} />,
           },
           { id: 'current', header: 'Current size', accessor: (r: (typeof diskEntries)[number]) => r.rec.currentLabel, width: '13fr' as const },
           { id: 'recommended', header: 'Recommended size', accessor: (r: (typeof diskEntries)[number]) => r.rec.recommendedLabel, width: '15fr' as const },

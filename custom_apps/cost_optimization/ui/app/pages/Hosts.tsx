@@ -134,7 +134,10 @@ export const Hosts = () => {
         header: 'Worst disk (p90, 7d)',
         accessor: 'diskPct',
         width: '16fr' as const,
-        cell: ({ value }: { value: unknown }) => <UsageCell value={Number(value)} />,
+        // Disk is capacity risk, not cost waste - low usage is genuinely
+        // safe (green), high usage is genuinely at risk (red), unlike the
+        // inverted CPU/memory columns.
+        cell: ({ value }: { value: unknown }) => <UsageCell value={Number(value)} invert={false} />,
       },
       {
         id: 'cpuStatus',
