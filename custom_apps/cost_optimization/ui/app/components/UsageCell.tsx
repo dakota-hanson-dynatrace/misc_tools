@@ -13,11 +13,8 @@ export const UsageCell = ({ value }: { value: number }) => (
     style={{
       display: 'inline-block',
       minWidth: 56,
-      padding: '2px 8px',
-      borderRadius: 4,
       textAlign: 'right',
-      background: heatColor(1 - value / 100),
-      color: '#fff',
+      color: heatColor(1 - value / 100),
       fontVariantNumeric: 'tabular-nums',
     }}
   >

@@ -6,9 +6,13 @@ export const MEM_COLOR = 'hsl(150, 55%, 45%)'; // emerald
 export const DISK_COLOR = 'rgb(120, 145, 180)'; // slate-blue
 export const WARN_COLOR = 'hsl(28, 85%, 55%)'; // amber
 
-/** 0 = healthy (green), 0.5 = warning (yellow), 1 = critical (red). */
+/**
+ * 0 = healthy (green), 0.5 = warning (yellow), 1 = critical (red).
+ * Used as plain text color on a dark background (UsageCell), not a filled
+ * badge - 55% lightness so it reads clearly without a background chip.
+ */
 export function heatColor(t: number): string {
   const clamped = Math.max(0, Math.min(1, t));
   const hue = 120 - clamped * 120; // 120 green -> 60 yellow -> 0 red
-  return `hsl(${hue}, 70%, 40%)`;
+  return `hsl(${hue}, 70%, 55%)`;
 }
