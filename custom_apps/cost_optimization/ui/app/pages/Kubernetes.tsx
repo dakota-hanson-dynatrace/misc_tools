@@ -1,6 +1,5 @@
 import React from 'react';
 import { DataTable } from '@dynatrace/strato-components-preview/tables';
-import { Button } from '@dynatrace/strato-components/buttons';
 import { Flex } from '@dynatrace/strato-components/layouts';
 import { Heading, Paragraph } from '@dynatrace/strato-components/typography';
 import { useNavigate, useLocation } from 'react-router-dom';
@@ -69,16 +68,21 @@ export const Kubernetes = () => {
   const underProvisionedCount = rows.filter((r) => r.rec.cpuStatus === 'near-capacity' || r.rec.memStatus === 'near-capacity').length;
   const totalCpuSlack = rows.reduce((sum, r) => sum + r.rec.cpuSlackM, 0);
 
+  // Widths kept tight (and headers short) so the table fits without
+  // horizontal scroll - open a row's drawer for the full kubectl command
+  // (see WorkloadDetail's Copy buttons) instead of a Copy column here.
+  // `fr` (not a plain px number) so the columns stretch to fill fullWidth's
+  // available space instead of leaving it blank past the last column.
   const columns = React.useMemo(
     () => [
-      { id: 'workload', header: 'Workload', accessor: (r: (typeof rows)[number]) => r.row['k8s.workload.name'], width: 160 },
-      { id: 'namespace', header: 'Namespace', accessor: (r: (typeof rows)[number]) => r.row['k8s.namespace.name'], width: 120 },
-      { id: 'container', header: 'Container', accessor: (r: (typeof rows)[number]) => r.row['k8s.container.name'], width: 150 },
+      { id: 'workload', header: 'Workload', accessor: (r: (typeof rows)[number]) => r.row['k8s.workload.name'], width: '13fr' as const },
+      { id: 'namespace', header: 'Namespace', accessor: (r: (typeof rows)[number]) => r.row['k8s.namespace.name'], width: '10fr' as const },
+      { id: 'container', header: 'Container', accessor: (r: (typeof rows)[number]) => r.row['k8s.container.name'], width: '11fr' as const },
       {
         id: 'cpu',
-        header: 'CPU request → recommended',
+        header: 'CPU req. → rec.',
         accessor: (r: (typeof rows)[number]) => r,
-        width: 190,
+        width: '12fr' as const,
         cell: ({ value }: { value: (typeof rows)[number] }) => (
           <>{fmtCores(value.row.cpu_req_avg)} {'→'} {fmtCores(value.rec.recommendedCpuRequestM)}</>
         ),
@@ -87,55 +91,38 @@ export const Kubernetes = () => {
         id: 'cpuSlack',
         header: 'CPU slack',
         accessor: (r: (typeof rows)[number]) => r.rec.cpuSlackM,
-        width: 100,
+        width: '8fr' as const,
         cell: ({ value }: { value: unknown }) => <span style={{ color: slackColor(Number(value)) }}>{fmtCores(value)}</span>,
       },
       {
         id: 'cpuStatus',
-        header: 'CPU recommendation',
+        header: 'CPU rec.',
         accessor: (r: (typeof rows)[number]) => r.rec.cpuStatus,
-        width: 160,
+        width: '10fr' as const,
         cell: ({ value }: { value: unknown }) => <>{STATUS_LABEL[value as SizingStatus]}</>,
       },
       {
         id: 'mem',
-        header: 'Memory request → recommended',
+        header: 'Mem. req. → rec.',
         accessor: (r: (typeof rows)[number]) => r,
-        width: 210,
+        width: '14fr' as const,
         cell: ({ value }: { value: (typeof rows)[number] }) => (
           <>{fmtBytes(value.row.mem_req_avg)} {'→'} {value.rec.recommendedMemRequestMi} MB</>
         ),
       },
       {
         id: 'memSlack',
-        header: 'Memory slack',
+        header: 'Mem. slack',
         accessor: (r: (typeof rows)[number]) => r.rec.memSlackMi,
-        width: 120,
+        width: '9fr' as const,
         cell: ({ value }: { value: unknown }) => <span style={{ color: slackColor(Number(value)) }}>{Number(value).toFixed(0)} MB</span>,
       },
       {
         id: 'memStatus',
-        header: 'Memory recommendation',
+        header: 'Mem. rec.',
         accessor: (r: (typeof rows)[number]) => r.rec.memStatus,
-        width: 170,
+        width: '10fr' as const,
         cell: ({ value }: { value: unknown }) => <>{STATUS_LABEL[value as SizingStatus]}</>,
-      },
-      {
-        id: 'copy',
-        header: '',
-        accessor: (r: (typeof rows)[number]) => r,
-        width: 80,
-        cell: ({ value }: { value: (typeof rows)[number] }) => (
-          <Button
-            variant="emphasized"
-            onClick={(e: React.MouseEvent) => {
-              e.stopPropagation();
-              void navigator.clipboard.writeText(`${value.rec.cpuCommand}\n${value.rec.memCommand}`);
-            }}
-          >
-            Copy fix
-          </Button>
-        ),
       },
     ],
     []
@@ -169,10 +156,14 @@ export const Kubernetes = () => {
         loading={nodes.isLoading}
         fullWidth
         columns={[
-          { id: 'name', header: 'Node', accessor: 'k8s.node.name', width: 260 },
-          { id: 'cpu', header: 'Allocatable CPU', accessor: 'cpu_millicores', width: 150, cell: ({ value }: { value: unknown }) => <>{fmtCores(value)}</> },
-          { id: 'mem', header: 'Allocatable memory', accessor: 'mem_gb', width: 160, cell: ({ value }: { value: unknown }) => <>{Number(value).toFixed(1)} GB</> },
-          { id: 'pods', header: 'Pods', accessor: (r: NodeRow) => `${r.cur_pods} / ${r.max_pods}`, width: 100 },
+          // Accessor must be a function, not the dotted string 'k8s.node.name' -
+          // Strato splits a dotted string accessor into a nested object path
+          // (row.k8s.node.name), which is undefined for a flat row whose key
+          // literally contains dots. Renders blank instead of erroring.
+          { id: 'name', header: 'Node', accessor: (r: NodeRow) => r['k8s.node.name'], width: '26fr' },
+          { id: 'cpu', header: 'Allocatable CPU', accessor: 'cpu_millicores', width: '15fr', cell: ({ value }: { value: unknown }) => <>{fmtCores(value)}</> },
+          { id: 'mem', header: 'Allocatable memory', accessor: 'mem_gb', width: '16fr', cell: ({ value }: { value: unknown }) => <>{Number(value).toFixed(1)} GB</> },
+          { id: 'pods', header: 'Pods', accessor: (r: NodeRow) => `${r.cur_pods} / ${r.max_pods}`, width: '10fr' },
         ]}
       >
         <DataTable.EmptyState>No Kubernetes nodes found in this environment.</DataTable.EmptyState>
