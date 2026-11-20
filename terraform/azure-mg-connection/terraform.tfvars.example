@@ -1,0 +1,45 @@
+# terraform.tfvars.example
+# ---------------------------------------------------------------------------
+# Copy to terraform.tfvars (git-ignored) and fill in real values, OR pass
+# values at runtime with -var flags or TF_VAR_ environment variables.
+#
+# NEVER commit real IDs or secrets to source control.
+# ---------------------------------------------------------------------------
+
+# --- Dynatrace ---
+# Provider auth is via DT_* environment variables (see providers.tf):
+#   export DT_ENV_URL="https://<environment-id>.apps.dynatrace.com"
+#   export DT_CLIENT_ID="..."  DT_CLIENT_SECRET="..."   # or DT_PLATFORM_TOKEN
+dt_env_url = "https://<environment-id>.apps.dynatrace.com"
+
+# --- Connection identity ---
+connection_name  = "my-azure-management-group" # letters, numbers, hyphens only
+app_display_name = "Dynatrace-Monitoring"
+
+# --- Authentication ---
+# "federatedIdentityCredential" (recommended, passwordless) or "clientSecret".
+# clientSecret needs no extra input — Terraform generates and stores the secret.
+auth_type = "federatedIdentityCredential"
+
+# --- Azure deployment ---
+tenant_id                  = "00000000-0000-0000-0000-000000000000"
+management_group_id        = "my-management-group"   # ID only, not the full resource path
+deployment_subscription_id = "00000000-0000-0000-0000-000000000000"
+monitored_locations        = ["eastus", "westeurope"]
+
+# Optional: restrict monitoring to specific subscriptions within the MG.
+# An empty list (default) monitors all subscriptions under the management group.
+# subscription_ids = ["00000000-0000-0000-0000-000000000000"]
+
+# --- Monitoring configuration ---
+# feature_sets defaults to a common set of Azure services. Verify the exact
+# identifiers against your environment's integration-azure schema and override
+# here if needed.
+# feature_sets = ["microsoft_compute.virtualmachines_essential", "microsoft_web.sites_app_essential"]
+
+# --- Azure Logs and Events forwarder (optional) ---
+# Set to true to deploy an Event Hub namespace + two Event Hubs in each
+# monitored location within deployment_subscription_id. Resources in any
+# subscription under the management group can forward logs cross-subscription
+# to these Event Hubs via Azure diagnostic settings.
+# enable_log_forwarder = false

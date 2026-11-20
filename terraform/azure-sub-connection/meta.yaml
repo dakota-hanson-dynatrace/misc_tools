@@ -1,0 +1,38 @@
+title: "Dynatrace Azure Subscription Connection"
+description: >
+  Terraform module that connects a single Azure subscription to Dynatrace,
+  automating app registration, RBAC assignment, and monitoring configuration
+  with support for passwordless federated authentication.
+purpose: >
+  When teams want to connect an Azure subscription to Dynatrace without manually
+  configuring app registrations, role assignments, and monitoring settings in both
+  portals, this module handles the full 5-step setup in a single terraform apply —
+  including passwordless federated identity credentials (recommended) or client
+  secret auth — eliminating credential rotation toil and configuration drift.
+author: "Kodai Ishikawa"
+contact: "kodai.ishikawa@dynatrace.com"
+asset_type: terraform
+use_case: cloud
+deployment:
+  - SaaS
+tags:
+  - azure
+  - terraform
+  - cloud-connection
+  - app-registration
+  - rbac
+  - federated-identity
+  - event-hub
+setup_instructions: >
+  Prerequisites: Terraform >= 1.6.0, azuread and azurerm providers (latest),
+  Dynatrace provider ~> 1.0. Requires Azure credentials with Owner or User Access
+  Administrator role on the target subscription (run: az login).
+  Requires a Dynatrace settings token (scopes: settings:objects:read/write,
+  extensions:configurations:read/write).
+  1. Copy terraform.tfvars.example to terraform.tfvars and fill in all values.
+  2. Choose auth_type: federatedIdentityCredential (recommended) or clientSecret.
+  3. Run: terraform init
+  4. Run: terraform apply
+  See README.md for full variable reference and optional Event Hub log ingest setup.
+related_assets:
+  - /terraform/cloud/azure-mg-connection

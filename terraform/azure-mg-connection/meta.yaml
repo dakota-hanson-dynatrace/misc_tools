@@ -1,0 +1,40 @@
+title: "Dynatrace Azure Management Group Connection"
+description: >
+  Terraform module that connects an Azure Management Group to Dynatrace,
+  enabling monitoring across all subscriptions within the group with a single
+  app registration, RBAC assignment, and federated or secret-based authentication.
+purpose: >
+  When platform teams need to connect multiple Azure subscriptions to Dynatrace
+  without repeating the app registration and role assignment process per subscription,
+  this module scopes the connection to a Management Group — covering all child
+  subscriptions in one terraform apply. Supports passwordless federated identity
+  credentials to eliminate credential rotation and reduce long-lived secret exposure.
+author: "Kodai Ishikawa"
+contact: "kodai.ishikawa@dynatrace.com"
+asset_type: terraform
+use_case: cloud
+deployment:
+  - SaaS
+tags:
+  - azure
+  - terraform
+  - cloud-connection
+  - management-group
+  - app-registration
+  - rbac
+  - federated-identity
+  - event-hub
+  - multi-subscription
+setup_instructions: >
+  Prerequisites: Terraform >= 1.6.0, azuread and azurerm providers (latest),
+  Dynatrace provider ~> 1.0. Requires Azure credentials with Owner or User Access
+  Administrator role at the Management Group scope (run: az login).
+  Requires a Dynatrace settings token (scopes: settings:objects:read/write,
+  extensions:configurations:read/write).
+  1. Copy terraform.tfvars.example to terraform.tfvars and fill in all values.
+  2. Choose auth_type: federatedIdentityCredential (recommended) or clientSecret.
+  3. Run: terraform init
+  4. Run: terraform apply
+  See README.md for full variable reference and optional Event Hub log ingest setup.
+related_assets:
+  - /terraform/cloud/azure-sub-connection
